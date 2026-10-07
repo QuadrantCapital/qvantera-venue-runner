@@ -30,7 +30,7 @@ if (!cfg.NATS_URL || !cfg.NATS_USER) {
 }
 
 const app = Fastify({ logger: createPinoOptions('venue-runner', build, cfg.LOG_LEVEL) as object })
-app.log.info({ build, config: describeConfig(venueRunnerConfig, cfg) }, 'venue runner starting')
+app.log.info({ build, config: describeConfig(venueRunnerConfig, cfg) }, 'venue-runner starting')
 registerMetricsRoute(app)
 
 const bus = new NatsBus(cfg.NATS_CLOSE_DEADLINE_MS)
