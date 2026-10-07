@@ -1,0 +1,30 @@
+{
+  "name": "@quadrantcapital/venue-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint -c ../../eslint.config.mjs src"
+  },
+  "dependencies": {
+    "@quadrantcapital/messaging": "1.0.349",
+    "@quadrantcapital/observability": "1.0.349",
+    "@quadrantcapital/wire": "1.0.349",
+    "axios": "^1.19.0",
+    "fastify": "^5.12.5",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "@types/ws": "^8",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
+  }
+}
