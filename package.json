@@ -12,9 +12,9 @@
     "lint": "eslint -c ../../eslint.config.mjs src"
   },
   "dependencies": {
-    "@quadrantcapital/messaging": "1.0.349",
-    "@quadrantcapital/observability": "1.0.349",
-    "@quadrantcapital/wire": "1.0.349",
+    "@quadrantcapital/messaging": "1.0.383",
+    "@quadrantcapital/observability": "1.0.383",
+    "@quadrantcapital/wire": "1.0.383",
     "axios": "^1.19.0",
     "fastify": "^5.12.5",
     "ws": "^8.22.0"
