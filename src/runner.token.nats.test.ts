@@ -54,6 +54,8 @@ describeNats('a registered runner logs in with its token (M-367)', () => {
   const logins: Array<{ type?: string; user?: string }> = []
   const held: Array<() => void> = []
   const disconnects: string[] = []
+  /** Logins the stand-in callout refuses before it admits again — a Control restarting. */
+  let refuseNext = 0
   let runner: Awaited<ReturnType<typeof startRunner>>
 
   beforeAll(async () => {
@@ -75,7 +77,7 @@ describeNats('a registered runner logs in with its token (M-367)', () => {
           const req = decodeJwt<AuthorizationRequest>(new TextDecoder().decode(msg.data)).nats as AuthorizationRequest
           logins.push({ type: req.client_info.type, user: req.connect_opts.user })
           const own = `qvantera.v1.runner.${ORG}.${PREFIX}`
-          const ok = req.connect_opts.pass === TOKEN && req.client_info.type === 'websocket'
+          const ok = req.connect_opts.pass === TOKEN && req.client_info.type === 'websocket' && refuseNext-- <= 0
           const jwt = ok
             ? await encodeUser(PREFIX, req.user_nkey, issuer, {
                 pub: { allow: [`${own}.heartbeat`, `${own}.ws.*.frame`, `${own}.ws.*.closed`, `qvantera.v1.runner.hello.${PREFIX}`] },
@@ -169,6 +171,22 @@ describeNats('a registered runner logs in with its token (M-367)', () => {
     const res = await answer
     expect(res.status).toBe(200)
     expect(Buffer.from(res.body).toString()).toBe('{"held":true}')
+  }, 20_000)
+
+  it('waits out refused logins — a callout restarting — and is admitted once it answers', async () => {
+    refuseNext = 2
+    const before = logins.length
+    const second = await openBus({
+      url: server!.wsUrl,
+      user: PREFIX,
+      pass: TOKEN,
+      inboxPrefix: `_INBOX_${PREFIX}`,
+      log: { info: () => undefined, warn: () => undefined },
+    })
+    expect(second.connected()).toBe(true)
+    // Two refused, the third admitted: the first connect did not give up.
+    expect(logins.length - before).toBeGreaterThanOrEqual(3)
+    await second.close(1_000)
   }, 20_000)
 
   it('keeps serving past several logins, with no connection ever cut by an expiry', async () => {

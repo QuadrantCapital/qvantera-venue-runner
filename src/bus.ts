@@ -42,6 +42,14 @@ export type BusOptions = {
 /** Every runner subscription is in this queue group (see above). */
 export const QUEUE = 'runner'
 
+/**
+ * A login that is never given up on. The platform may be down when the runner starts or restart
+ * under it, and while Control restarts its auth callout refuses every login: nats.js by default
+ * aborts after two refusals in a row and throws out of the first connect, which ended the runner
+ * (found on a local stack, 2026-10-08). `ignoreAuthErrorAbort` keeps it asking, first connect
+ * included, and `watch` logs each refusal. A token refused for good was rotated or revoked — the log
+ * says `Authorization Violation`, and the runner keeps asking rather than restart-looping.
+ */
 async function login(opts: BusOptions): Promise<NatsConnection> {
   const common: ConnectionOptions = {
     servers: opts.url,
@@ -49,10 +57,10 @@ async function login(opts: BusOptions): Promise<NatsConnection> {
     pass: opts.pass,
     inboxPrefix: opts.inboxPrefix,
     ...(opts.name ? { name: opts.name } : {}),
-    // The platform may be down when the runner starts, or restart under it: keep trying, forever.
     waitOnFirstConnect: true,
     maxReconnectAttempts: -1,
     reconnectTimeWait: 2_000,
+    ignoreAuthErrorAbort: true,
   }
   return /^wss?:/.test(opts.url) ? wsconnect(common) : tcpconnect(common)
 }

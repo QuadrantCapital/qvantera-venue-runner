@@ -92,6 +92,8 @@ export async function startRunner(deps: {
       return
     }
     if (h.error) return
+    // A hosted runner whose first hello went unanswered learns its id and name from a later one.
+    if (identity && !identity.runnerId && h.runnerId) Object.assign(identity, { runnerId: h.runnerId, name: h.name })
     const next = h.egress.length > 0 ? [...h.egress] : null
     if (JSON.stringify(next) !== JSON.stringify(egress)) {
       egress = next
@@ -131,7 +133,7 @@ export async function startRunner(deps: {
   // Who it is. A registered runner learns its subjects' scope from the platform and cannot serve
   // before it has; the hosted runner's are fixed (M-366), and a platform from before the hello does
   // not answer it.
-  let identity: Identity
+  let identity: Identity | undefined
   for (;;) {
     const h = await hello()
     if (h && !h.error) {
@@ -147,7 +149,7 @@ export async function startRunner(deps: {
     log.warn({ error: h?.error ?? 'no answer' }, 'runner hello not answered; asking again')
     await new Promise((r) => setTimeout(r, HELLO_TIMEOUT_MS))
   }
-  const { scope, runner } = identity
+  const { scope, runner } = identity as Identity
 
   const relay =
     deps.relay ??
@@ -261,7 +263,7 @@ export async function startRunner(deps: {
   lookups?.unref?.()
 
   return {
-    identity,
+    identity: identity as Identity,
     instanceId,
     lanes: () => lanes,
     egressIp,
