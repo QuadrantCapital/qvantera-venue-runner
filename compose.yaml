@@ -1,0 +1,41 @@
+# The Qvantera venue runner, installed on your own host (README.md).
+#
+# One service on the host network: it sends the venue requests your Qvantera platform has already
+# signed from your host's own addresses — the ones you whitelist at the venue — and holds the venue's
+# WebSocket streams. It connects out to the platform only; nothing connects in. Your API secrets
+# never reach it.
+#
+# `install.sh` writes `.env` next to this file and starts it. To update: `docker compose pull &&
+# docker compose up -d`. To stop it for good: `docker compose down`.
+name: qvantera-venue-runner
+
+services:
+  venue-runner:
+    image: ghcr.io/quadrantcapital/venue-runner:${QV_RUNNER_VERSION:-latest}
+    # The host's network: a lane is one of the host's own addresses, bound as the source of the
+    # venue connections sent on it, and a bridge network has none of them.
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      QV_PLATFORM_URL: ${QV_PLATFORM_URL:?set QV_PLATFORM_URL in .env — your platform's https:// address}
+      QV_RUNNER_TOKEN: ${QV_RUNNER_TOKEN:?set QV_RUNNER_TOKEN in .env — the token shown when you registered the runner}
+      RUNNER_EGRESS_IPS: ${RUNNER_EGRESS_IPS:-auto}
+      RUNNER_EGRESS_IP_URL: ${RUNNER_EGRESS_IP_URL:-}
+      RUNNER_NAME: ${RUNNER_NAME:-}
+      RUNNER_PORT: ${RUNNER_PORT:-3005}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    # On stop, the requests already sent to the venue are waited for (25 s): one cut mid-flight
+    # would leave an order whose outcome the platform has to look up.
+    stop_grace_period: 35s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.RUNNER_PORT || 3005) + '/health').then((r) => r.json()).then((h) => process.exit(h.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

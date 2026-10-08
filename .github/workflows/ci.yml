@@ -1,0 +1,249 @@
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # dev builds each tree's image once; main promotes it and builds nothing (M-351, as every
+  # qvantera repository).
+  push:
+    branches: [dev, main, 'hotfix/**']
+  workflow_dispatch:
+
+# A pull request's runs are grouped by its number, never with a branch's pushes (M-341d).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  test:
+    runs-on: [self-hosted, qvantera]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: corepack enable
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          registry-url: https://npm.pkg.github.com
+          scope: "@quadrantcapital"
+      - run: corepack enable
+      - run: yarn install --immutable
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: yarn typecheck
+      - run: yarn lint
+      - run: ./.github/check-subject-literals.sh
+      - run: yarn test
+      - run: yarn build
+
+  # M-351: the one build of a tree. `:tree-<tree>` is what a promotion looks up, `:sha-<sha>` the
+  # revision, `:dev` what a pull request into dev runs against. Never `:latest`: only `promote`
+  # on main moves that, and it is what the pilot pulls.
+  image:
+    needs: test
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/heads/hotfix/'))
+    runs-on: [self-hosted, qvantera-build]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # M-500: the identity the image records. On a pull request HEAD is the merge commit
+      # actions/checkout made, which is exactly the tree the image is built from.
+      - name: Build identity
+        id: build-id
+        run: |
+          {
+            echo "sha=$(git rev-parse HEAD)"
+            echo "tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # D-24: on our runners the Docker daemon's own BuildKit keeps every layer and the Yarn
+      # cache mount between jobs, so there is no buildx builder to set up and no cache to
+      # ship to GitHub and back; qvantera-ci-prune ages the build cache out.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          push: true
+          provenance: false
+          build-args: |
+            QV_BUILD_SHA=${{ steps.build-id.outputs.sha }}
+            QV_BUILD_TREE=${{ steps.build-id.outputs.tree }}
+            QV_BUILD_TIME=${{ steps.build-id.outputs.time }}
+          secrets: |
+            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          tags: |
+            ghcr.io/quadrantcapital/venue-runner:tree-${{ steps.build-id.outputs.tree }}
+            ghcr.io/quadrantcapital/venue-runner:sha-${{ steps.build-id.outputs.sha }}
+            ${{ github.ref == 'refs/heads/dev' && 'ghcr.io/quadrantcapital/venue-runner:dev' || '' }}
+
+  # M-351: main never builds. The image dev built for this exact tree becomes `:latest` and
+  # `:sha-<this commit>`, byte for byte; a tree with no dev build fails "no artifact for this tree".
+  promote:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, qvantera-build]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Promote this tree's dev build
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/promote-image.sh venue-runner "$(git rev-parse 'HEAD^{tree}')" "$(git rev-parse HEAD)"
+
+  # M-411, as in every qvantera repository: build this pull request's image and run the full e2e
+  # against a stack where it is the only thing that is not the system it joins — `:dev` for a pull
+  # request into dev, `:latest` for one into main.
+  image-pr:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: [self-hosted, qvantera-build]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # M-351: a pull request into main from dev (a promotion) or from hotfix/* carries a tree that
+      # branch's push has already built. It is tested as that artifact, never rebuilt, so the
+      # image main will promote is the image this e2e runs.
+      PROMOTION: ${{ github.base_ref == 'main' && (github.head_ref == 'dev' || startsWith(github.head_ref, 'hotfix/')) }}
+    # Every leg checks out the same commit, so whichever leg sets them, they are the same.
+    outputs:
+      tree: ${{ steps.build-id.outputs.tree }}
+      tag: ${{ steps.build-id.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # M-500: the identity the image records. On a pull request HEAD is the merge commit
+      # actions/checkout made, which is exactly the tree the image is built from.
+      - name: Build identity
+        id: build-id
+        run: |
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          {
+            echo "sha=$(git rev-parse HEAD)"
+            echo "tree=${tree}"
+            echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if [ "${PROMOTION}" = true ]; then echo "tag=tree-${tree}"; else echo "tag=pr-${{ github.event.pull_request.number }}"; fi
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: The artifact this tree already has
+        if: env.PROMOTION == 'true'
+        run: |
+          image="ghcr.io/quadrantcapital/venue-runner:${{ steps.build-id.outputs.tag }}"
+          if ! docker buildx imagetools inspect "${image}" >/dev/null; then
+            echo "::error::no artifact for this tree: ${image} does not exist. A promotion is tested as what dev built — wait for dev's push to finish building, or for a hotfix, its hotfix/* branch's."
+            exit 1
+          fi
+          echo "testing ${image}, built by the head branch's push; nothing is built here"
+      # `:pr-<n>` and nothing else: a pull request's build is never promotable, so it never
+      # writes `:tree-*`, `:sha-*`, `:dev` or `:latest`. prune-pr-images deletes these again.
+      - if: env.PROMOTION != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          push: true
+          provenance: false
+          build-args: |
+            QV_BUILD_SHA=${{ steps.build-id.outputs.sha }}
+            QV_BUILD_TREE=${{ steps.build-id.outputs.tree }}
+            QV_BUILD_TIME=${{ steps.build-id.outputs.time }}
+          secrets: |
+            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          tags: ghcr.io/quadrantcapital/venue-runner:${{ steps.build-id.outputs.tag }}
+
+  e2e-pr:
+    # image-pr no longer waits for test: the build runners take it while the tests run, and a
+    # failed test still stops the e2e here.
+    needs: [test, image-pr]
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: [self-hosted, qvantera-e2e]
+    timeout-minutes: 20
+    env:
+      SDK_GITHUB_TOKEN: ${{ secrets.SDK_GITHUB_TOKEN }}
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # M-351: the system this pull request joins. Into dev: deploy@dev, and `:dev` for every image
+      # it does not override. Into main — a promotion or a hotfix — deploy@main and `:latest`,
+      # which is what the pilot runs.
+      DEPLOY_REF: ${{ github.base_ref == 'main' && 'main' || 'dev' }}
+      E2E_IMAGE_TAG: ${{ github.base_ref == 'main' && 'latest' || 'dev' }}
+      # The runner this pull request built, against every other image of the system it joins: the
+      # deploy e2e runs it as the stack's hosted runner, and as the second, self-hosted one it registers.
+      IMAGE_VENUE_RUNNER: ghcr.io/quadrantcapital/venue-runner:${{ needs.image-pr.outputs.tag }}
+      # e2e-stack.sh refuses to run unless every overridden image carries this tree (M-500).
+      BUILD_TREE_UNDER_TEST: ${{ needs.image-pr.outputs.tree }}
+    steps:
+      # This repository's own GITHUB_TOKEN reaches neither qvantera-deploy nor the
+      # sibling-owned GHCR packages — measured, not assumed. Two organisation secrets cover
+      # the gap, deliberately split by purpose so that neither carries write anywhere:
+      #   E2E_CI_TOKEN    fine-grained PAT, Contents:Read on qvantera-deploy — the checkout.
+      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull.
+      # One token cannot do both: a classic PAT has no "read code" scope short of `repo`,
+      # which is write access to every private repository in the organisation.
+      - name: Require the two cross-repository tokens
+        env:
+          E2E_CI_TOKEN: ${{ secrets.E2E_CI_TOKEN }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GH_TOKEN: ${{ secrets.E2E_CI_TOKEN }}
+        run: |
+          if [ -z "${E2E_CI_TOKEN}" ]; then
+            echo "::error::E2E_CI_TOKEN is not visible to this repository. Fine-grained PAT, Contents:Read on qvantera-deploy. See M-411 in 13-action-plan.md."
+            exit 1
+          fi
+          if [ -z "${GHCR_READ_TOKEN}" ]; then
+            echo "::error::GHCR_READ_TOKEN is not visible to this repository. Classic PAT, read:packages only. See M-411 in 13-action-plan.md."
+            exit 1
+          fi
+          # An expired or under-scoped token makes the checkout below fail with
+          # "Write access to repository not granted" — which is about neither writing nor
+          # this repository, and cost a round trip once already. Ask plainly instead.
+          if ! gh api /repos/QuadrantCapital/qvantera-deploy --jq .full_name >/dev/null 2>&1; then
+            echo "::error::E2E_CI_TOKEN cannot read QuadrantCapital/qvantera-deploy. Expired, awaiting organisation approval, or missing Contents:Read — check the PAT, not the workflow."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: QuadrantCapital/qvantera-deploy
+          ref: ${{ env.DEPLOY_REF }}
+          token: ${{ secrets.E2E_CI_TOKEN }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_READ_TOKEN }}
+      - name: Build backup image (load for compose)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile.backup
+          load: true
+          push: false
+          provenance: false
+          tags: ghcr.io/quadrantcapital/backup:latest
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile.e2e
+          load: true
+          push: false
+          provenance: false
+          tags: qvantera-e2e:ci
+          secrets: |
+            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+      - run: ./scripts/ci/e2e-stack.sh
