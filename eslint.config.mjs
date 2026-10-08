@@ -26,7 +26,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/src/config.ts', '**/*.test.ts'],
+    files: ['**/src/config.ts', '**/*.test.ts', '**/src/nats-harness.ts'],
     rules: { 'no-restricted-properties': 'off' },
   },
 )
