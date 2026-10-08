@@ -31,7 +31,15 @@ spread by lanes — only per-address limits are.
 2. Outbound HTTPS from the host to your platform and to the exchanges you trade on.
 3. Access to the image `ghcr.io/quadrantcapital/venue-runner` (your platform's operator tells you if
    you need to `docker login ghcr.io` first).
-4. This directory's files on the host: `compose.yaml`, `.env.example`, `install.sh`.
+4. This directory's files on the host: `compose.yaml`, `.env.example`, `install.sh`. Every image carries
+   them for its own release under `/app/install/`, so they can be copied out of the image you will run:
+
+   ```bash
+   mkdir -p /opt/qvantera-runner && cd /opt/qvantera-runner
+   for f in compose.yaml .env.example install.sh; do
+     docker run --rm --entrypoint cat ghcr.io/quadrantcapital/venue-runner:latest /app/install/$f >$f
+   done
+   ```
 
 ## Install
 
@@ -48,8 +56,11 @@ spread by lanes — only per-address limits are.
 2. **Install it on the host** with the token:
 
    ```bash
-   ./install.sh --platform https://qvantera.example.com --token qv_rnr_... --egress auto
+   bash install.sh --platform https://qvantera.example.com --token qv_rnr_... --egress auto
    ```
+
+   `bash install.sh` works whether or not the copied file kept its executable bit (a file written by
+   `cat` does not).
 
    `--egress auto` uses every public IP address of the host. To choose, list them:
    `--egress 203.0.113.10,203.0.113.11`. The script writes `.env`, starts the runner and prints its

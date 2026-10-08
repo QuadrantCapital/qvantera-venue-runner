@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install or reconfigure the Qvantera venue runner on this host (README.md).
 #
-#   ./install.sh --platform https://qvantera.example.com --token qv_rnr_… [--egress auto|<ip>,<ip>]
+#   bash install.sh --platform https://qvantera.example.com --token qv_rnr_… [--egress auto|<ip>,<ip>]
 #                [--egress-ip-url <url>] [--name <name>] [--version <tag>]
 #
 # Checks Docker, writes `.env` beside this script (mode 600 — the token is the runner's password),
