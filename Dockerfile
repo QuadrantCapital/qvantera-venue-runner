@@ -21,9 +21,14 @@ WORKDIR /app
 COPY --from=builder --chown=node:node /app/package.json ./
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
-# Build identity, last so a new commit rebuilds only these layers. CI passes the three args; the
-# labels let a deploy read the commit and tree from the digest without running it, and the runner
-# reports the same two on /health and /metrics.
+# The install files travel with the image they install: `docker run --rm --entrypoint cat <image>
+# /app/install/compose.yaml` gives the compose file of exactly this release (qvantera-deploy's e2e
+# installs its second runner that way).
+COPY compose.yaml .env.example install.sh /app/install/
+# Build identity, last so a new commit rebuilds only these layers (M-500). CI passes the three args.
+# The labels let a deploy read the commit and tree from the digest without running it; the file is
+# what the runner reports on /health, /metrics and its startup line — baked in, so no configuration
+# can claim a build the image is not.
 ARG QV_BUILD_SHA=
 ARG QV_BUILD_TREE=
 ARG QV_BUILD_TIME=
@@ -31,7 +36,7 @@ LABEL org.opencontainers.image.revision="${QV_BUILD_SHA}" \
       org.opencontainers.image.created="${QV_BUILD_TIME}" \
       org.opencontainers.image.source="https://github.com/QuadrantCapital/qvantera-venue-runner" \
       dev.qvantera.build.tree="${QV_BUILD_TREE}"
-ENV QV_BUILD_SHA=${QV_BUILD_SHA} QV_BUILD_TREE=${QV_BUILD_TREE} QV_BUILD_TIME=${QV_BUILD_TIME}
+RUN printf '{"sha":"%s","tree":"%s","time":"%s"}\n' "${QV_BUILD_SHA}" "${QV_BUILD_TREE}" "${QV_BUILD_TIME}" > /build-info.json
 USER node
 # Exec form: node is PID 1 and receives SIGTERM itself.
 CMD ["node", "dist/index.js"]
