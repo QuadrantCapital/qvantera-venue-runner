@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # dev builds each tree's image once; main promotes it and builds nothing (M-351, as every
+  # qvantera repository).
+  push:
+    branches: [dev, main, 'hotfix/**']
+  workflow_dispatch:
+
+# A pull request's runs are grouped by its number, never with a branch's pushes (M-341d).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  test:
+    runs-on: [self-hosted, qvantera]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: corepack enable
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          registry-url: https://npm.pkg.github.com
+          scope: "@quadrantcapital"
+      - run: corepack enable
+      - run: yarn install --immutable
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: yarn typecheck
+      - run: yarn lint
+      - run: ./.github/check-subject-literals.sh
+      - run: yarn test
+      - run: yarn build
+
+  # The skeleton's image is built and not pushed: `venue-runner:dev` is what every other
+  # repository's e2e runs, and it stays qvantera-trading's build until this repository's runner
+  # replaces it (M-367a).
+  image:
+    needs: test
+    runs-on: [self-hosted, qvantera-build]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Build identity
+        id: build-id
+        run: |
+          {
+            echo "sha=$(git rev-parse HEAD)"
+            echo "tree=$(git rev-parse 'HEAD^{tree}')"
+            echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          push: false
+          provenance: false
+          build-args: |
+            QV_BUILD_SHA=${{ steps.build-id.outputs.sha }}
+            QV_BUILD_TREE=${{ steps.build-id.outputs.tree }}
+            QV_BUILD_TIME=${{ steps.build-id.outputs.time }}
+          secrets: |
+            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          tags: ghcr.io/quadrantcapital/venue-runner:skeleton-${{ steps.build-id.outputs.tree }}
