@@ -2,6 +2,7 @@ import http from 'node:http'
 import https from 'node:https'
 import axios, { type AxiosInstance, isAxiosError } from 'axios'
 import type { WireMessageByType, WirePayloadByType } from '@quadrantcapital/wire'
+import { laneSocketOptions } from './lanes.js'
 
 type RunnerHttpRequest = WireMessageByType['RunnerHttpRequest']
 type RunnerHttpResponse = WirePayloadByType['RunnerHttpResponse']
@@ -25,11 +26,16 @@ const AGENT_OPTIONS = {
   scheduling: 'lifo',
 } as const
 
-/** The one client every relayed request goes out on. No `localAddress`: the host's route is the egress. */
-export function createVenueHttpClient(): AxiosInstance {
+/**
+ * The client one lane's requests go out on (M-367): its own keep-alive pool, every connection bound
+ * to the lane's address. `''` is the host's default route. A pooled connection never changes lanes,
+ * so the venue sees each lane's requests from that lane's address and nowhere else.
+ */
+export function createVenueHttpClient(localAddress = ''): AxiosInstance {
+  const options = { ...AGENT_OPTIONS, ...laneSocketOptions(localAddress) }
   return axios.create({
-    httpAgent: new http.Agent(AGENT_OPTIONS),
-    httpsAgent: new https.Agent(AGENT_OPTIONS),
+    httpAgent: new http.Agent(options),
+    httpsAgent: new https.Agent(options),
     validateStatus: () => true,
     // The bytes as the venue sent them: spot-gateway parses, as it did before the relay.
     responseType: 'arraybuffer',
@@ -48,8 +54,23 @@ function reusedSocket(request: unknown): boolean | undefined {
   return typeof reused === 'boolean' ? reused : undefined
 }
 
-function failureKind(err: unknown): 'timeout' | 'network' {
+/**
+ * Failures that happen before a connection exists: no name for the lane's address family, the
+ * address not bindable, no route, the venue refusing the connection. Nothing reached the venue.
+ */
+const NEVER_CONNECTED = new Set(['ENOTFOUND', 'EAI_AGAIN', 'EADDRNOTAVAIL', 'EAFNOSUPPORT', 'ENETUNREACH', 'EHOSTUNREACH', 'ECONNREFUSED'])
+
+/**
+ * `lane_failed` only for a fresh connection that never opened (M-367): spot-gateway refuses such a
+ * request as unsent and stops using the lane. Anything on a pooled connection, or after the
+ * connection opened, may have reached the venue and is `timeout` or `network` as before (§ D-9).
+ */
+function failureKind(err: unknown, reused: boolean | undefined): 'timeout' | 'network' | 'lane_failed' {
   const code = isAxiosError(err) ? err.code : undefined
+  const errno = isAxiosError(err) ? (err.cause as NodeJS.ErrnoException | undefined)?.code : undefined
+  if (reused !== true && ((code && NEVER_CONNECTED.has(code)) || (errno && NEVER_CONNECTED.has(errno)))) {
+    return 'lane_failed'
+  }
   return code === 'ECONNABORTED' || code === 'ETIMEDOUT' ? 'timeout' : 'network'
 }
 
@@ -88,7 +109,7 @@ export async function relayHttp(client: AxiosInstance, req: RunnerHttpRequest): 
   } catch (err) {
     const reused = isAxiosError(err) ? reusedSocket(err.request) : undefined
     return {
-      error: failureKind(err),
+      error: failureKind(err, reused),
       venueMs: venueMs(),
       ...(reused === undefined ? {} : { reusedSocket: reused }),
     }

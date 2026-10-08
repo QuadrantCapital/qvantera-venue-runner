@@ -48,6 +48,7 @@ describe('relayHttp (M-366)', () => {
     headers: [],
     body: new Uint8Array(),
     timeoutMs: 2_000,
+    lane: '',
     ...extra,
   })
 
@@ -87,7 +88,7 @@ describe('relayHttp (M-366)', () => {
     expect((await relayHttp(client, request(`${base}/?status=429`))).status).toBe(429)
   })
 
-  it('answers timeout for a request sent and not answered in time, and network for one never connected', async () => {
+  it('answers timeout for a request sent and not answered in time, and lane_failed for one that never connected', async () => {
     const client = createVenueHttpClient()
     const slow = await relayHttp(client, request(`${base}/?delay=500`, { timeoutMs: 100 }))
     expect(slow).toMatchObject({ error: 'timeout' })
@@ -97,8 +98,22 @@ describe('relayHttp (M-366)', () => {
     const closed = base
     server.closeAllConnections()
     await new Promise((resolve) => server.close(resolve))
-    expect(await relayHttp(client, request(`${closed}/`))).toMatchObject({ error: 'network' })
+    // Refused before a connection existed: nothing reached the venue (M-367), so spot-gateway may
+    // call it unsent rather than ambiguous.
+    expect(await relayHttp(client, request(`${closed}/`))).toMatchObject({ error: 'lane_failed' })
     server = http.createServer()
+  })
+
+  it("sends from the lane's address, and refuses a lane the host does not have before connecting", async () => {
+    const seen: string[] = []
+    server.on('connection', (socket) => seen.push(socket.remoteAddress ?? ''))
+    const res = await relayHttp(createVenueHttpClient('127.0.0.1'), request(`${base}/`))
+    expect(res.status).toBe(200)
+    expect(seen.at(-1)).toMatch(/127\.0\.0\.1$/)
+    // 192.0.2.1 is documentation space, never a local address: binding it fails before any connect.
+    expect(await relayHttp(createVenueHttpClient('192.0.2.1'), request(`${base}/`))).toMatchObject({
+      error: 'lane_failed',
+    })
   })
 
   // M-320, moved with the client: the pilot's ~720 ms a request was a fresh TCP and TLS handshake

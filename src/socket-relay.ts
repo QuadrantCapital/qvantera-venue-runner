@@ -1,4 +1,5 @@
 import WebSocket from 'ws'
+import { laneSocketOptions } from './lanes.js'
 
 /** How long a venue has to accept a socket before the open is answered `connect_failed`. */
 export const OPEN_TIMEOUT_MS = 15_000
@@ -28,10 +29,12 @@ function bytes(data: WebSocket.RawData): Uint8Array {
 export function createSocketRelay(opts: {
   events: SocketEvents
   log: Log
-  connect?: (url: string) => WebSocket
+  connect?: (url: string, lane: string) => WebSocket
 }) {
   const sockets = new Map<string, WebSocket>()
-  const connect = opts.connect ?? ((url: string) => new WebSocket(url))
+  // A socket leaves from its lane's address (M-367), so a credential's private stream is seen by the
+  // venue from the one address spot-gateway chose for it.
+  const connect = opts.connect ?? ((url: string, lane: string) => new WebSocket(url, laneSocketOptions(lane)))
 
   const ended = (socketId: string, ws: WebSocket, code: number, reason: string) => {
     // Already ended (closeAll published it), or replaced: nothing more to say about this one.
@@ -42,11 +45,11 @@ export function createSocketRelay(opts: {
 
   return {
     /** Resolves once the venue accepted the socket, or with why it did not. Never rejects. */
-    open(socketId: string, url: string): Promise<{ error?: string }> {
+    open(socketId: string, url: string, lane = ''): Promise<{ error?: string }> {
       if (sockets.has(socketId)) return Promise.resolve({ error: 'connect_failed' })
       let ws: WebSocket
       try {
-        ws = connect(url)
+        ws = connect(url, lane)
       } catch (err) {
         opts.log.warn({ host: hostOf(url), err: String(err) }, 'runner ws connect failed')
         return Promise.resolve({ error: 'connect_failed' })
