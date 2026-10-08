@@ -175,6 +175,11 @@ jobs:
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: [self-hosted, qvantera-e2e]
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+      # M-351d: the e2e green record is a commit status `e2e/green` on this pull request's head.
+      statuses: write
     env:
       SDK_GITHUB_TOKEN: ${{ secrets.SDK_GITHUB_TOKEN }}
       NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -185,7 +190,7 @@ jobs:
       E2E_IMAGE_TAG: ${{ github.base_ref == 'main' && 'latest' || 'dev' }}
       # The runner this pull request built, against every other image of the system it joins: the
       # deploy e2e runs it as the stack's hosted runner, and as the second, self-hosted one it registers.
-      IMAGE_VENUE_RUNNER: ghcr.io/quadrantcapital/venue-runner:${{ needs.image-pr.outputs.tag }}
+      E2E_SWAP_VENUE_RUNNER: ghcr.io/quadrantcapital/venue-runner:${{ needs.image-pr.outputs.tag }}
       # e2e-stack.sh refuses to run unless every overridden image carries this tree (M-500).
       BUILD_TREE_UNDER_TEST: ${{ needs.image-pr.outputs.tree }}
     steps:
@@ -227,7 +232,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_READ_TOKEN }}
+      # M-351d: deploy's helper, from the same checkout as e2e-stack.sh. The key is that checkout's tree
+      # and every image the stack would run, this pull request's own among them, and the record is a
+      # commit status on this repository's pull request head — so the one run it saves is a re-run of
+      # an unchanged head (testing.md § "One run per tree").
+      - name: Green record
+        id: record
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/green-status.sh check
       - name: Build backup image (load for compose)
+        if: steps.record.outputs.skip != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
@@ -236,7 +251,8 @@ jobs:
           push: false
           provenance: false
           tags: ghcr.io/quadrantcapital/backup:latest
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+      - if: steps.record.outputs.skip != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: Dockerfile.e2e
@@ -246,4 +262,11 @@ jobs:
           tags: qvantera-e2e:ci
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
-      - run: ./scripts/ci/e2e-stack.sh
+      - if: steps.record.outputs.skip != 'true'
+        run: ./scripts/ci/e2e-stack.sh
+      - name: Write the green record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GREEN_KEY: ${{ steps.record.outputs.key }}
+          GREEN_URL: ${{ steps.record.outputs.url }}
+        run: ./scripts/ci/green-status.sh write
