@@ -17,7 +17,7 @@
     "@nats-io/nats-core": "3.4.0",
     "@nats-io/transport-node": "3.4.0",
     "@quadrantcapital/proto": "0.11.89",
-    "@quadrantcapital/wire": "1.0.383",
+    "@quadrantcapital/wire": "1.0.390",
     "axios": "^1.19.0",
     "pino": "^10.3.1",
     "prom-client": "^15.1.3",

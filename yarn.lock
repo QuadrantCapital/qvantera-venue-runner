@@ -452,15 +452,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@quadrantcapital/proto@npm:0.11.84":
-  version: 0.11.84
-  resolution: "@quadrantcapital/proto@npm:0.11.84::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40quadrantcapital%2Fproto%2F0.11.84%2Feab4d6f2999af9d2aae9dcf8c541b099250a2738"
-  dependencies:
-    "@bufbuild/protobuf": "npm:^2.9.0"
-  checksum: 10c0/ede83459e0f57512cdba2164a76f1f35b4573f1278bff3082d168d5b8bf1e8e74d3ff53dca99dd0a24af6d6f46e6be61c728a1e34668a88a2256c0e5c6d33ada
-  languageName: node
-  linkType: hard
-
 "@quadrantcapital/proto@npm:0.11.89":
   version: 0.11.89
   resolution: "@quadrantcapital/proto@npm:0.11.89::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40quadrantcapital%2Fproto%2F0.11.89%2F89f46a07bdf608a5dcb278083c4829f00a648b85"
@@ -480,7 +471,7 @@ __metadata:
     "@nats-io/nkeys": "npm:2.0.3"
     "@nats-io/transport-node": "npm:3.4.0"
     "@quadrantcapital/proto": "npm:0.11.89"
-    "@quadrantcapital/wire": "npm:1.0.383"
+    "@quadrantcapital/wire": "npm:1.0.390"
     "@types/node": "npm:^22.20.4"
     "@types/ws": "npm:^8"
     axios: "npm:^1.19.0"
@@ -497,13 +488,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@quadrantcapital/wire@npm:1.0.383":
-  version: 1.0.383
-  resolution: "@quadrantcapital/wire@npm:1.0.383::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40quadrantcapital%2Fwire%2F1.0.383%2Fc5003b9336613bde8db9b61f593d8eec72239181"
+"@quadrantcapital/wire@npm:1.0.390":
+  version: 1.0.390
+  resolution: "@quadrantcapital/wire@npm:1.0.390::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40quadrantcapital%2Fwire%2F1.0.390%2F162cdac388601ed43bfb96b780a2f920ce610015"
   dependencies:
     "@bufbuild/protobuf": "npm:^2.9.0"
-    "@quadrantcapital/proto": "npm:0.11.84"
-  checksum: 10c0/67ca478cdf00499bee5d263a391b8f1723c750f9c4d3879d6bf2adfbc89223fe904e1823e2daf15d37c4fc776374d44cacac433dd61ee25944013f782163835b
+    "@quadrantcapital/proto": "npm:0.11.89"
+  checksum: 10c0/d5d47f0aaa620a72c78cbf3686b2bc5f7d1d56555c0daef2a73b7e7b7182ec2872a7671899731a40ef502f4f268f4e118053ee1cfa2525ccd0bcb243a8176c3b
   languageName: node
   linkType: hard
 
