@@ -41,7 +41,7 @@ const schema = z
     RUNNER_NAME: optionalText,
     RUNNER_MAX_INFLIGHT: intFrom(64, 1),
     RUNNER_PORT: intFrom(3005, 0),
-    // The host network on a customer's machine: /health and /metrics stay on loopback unless asked.
+    // The host network on a customer's machine: /health, /ready and /metrics stay on loopback unless asked.
     RUNNER_HOST: optionalText.transform((v) => v ?? '127.0.0.1'),
     // On stop, a request already relayed is waited for: one cut mid-flight is an ambiguous create
     // made by the shutdown itself. Above the venue HTTP timeout spot-gateway sets (20 s).
