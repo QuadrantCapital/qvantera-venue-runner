@@ -39,6 +39,8 @@ export type Identity = { scope: string; runner: string; runnerId: string; name: 
  * counts each lane's venue limit, and a request moved to another lane would spend a budget it did
  * not count.
  */
+export type Runner = Awaited<ReturnType<typeof startRunner>>
+
 export async function startRunner(deps: {
   bus: RunnerBus
   /** The NATS user: its subjects' `<runner>` token, and the subject of its hello. */
