@@ -27,8 +27,11 @@ services:
     # On stop, the requests already sent to the venue are waited for (25 s): one cut mid-flight
     # would leave an order whose outcome the platform has to look up.
     stop_grace_period: 35s
+    # Liveness: the process answers. A lost connection to the platform does not fail it — the
+    # runner reconnects by itself, and a restart would not bring the platform back. `/ready` says
+    # whether it is connected now.
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.RUNNER_PORT || 3005) + '/health').then((r) => r.json()).then((h) => process.exit(h.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.RUNNER_PORT || 3005) + '/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 3
