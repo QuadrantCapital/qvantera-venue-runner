@@ -28,6 +28,7 @@ jobs:
       checks: read
       issues: read
       pull-requests: read
+      statuses: read
     steps:
       - name: Scorecard
         env:
