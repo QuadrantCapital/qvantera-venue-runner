@@ -18,9 +18,12 @@ permissions:
   contents: read
   packages: read
 
+# SEC-14 (owner, 2026-10-21): this repository is public, so every job runs on GitHub-hosted
+# runners. The organisation's self-hosted group refuses public repositories (D-24): a fork's pull
+# request must never run its code on the machines next to production.
 jobs:
   test:
-    runs-on: [self-hosted, qvantera]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -46,7 +49,7 @@ jobs:
   image:
     needs: test
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/heads/hotfix/'))
-    runs-on: [self-hosted, qvantera-build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -68,9 +71,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # D-24: on our runners the Docker daemon's own BuildKit keeps every layer and the Yarn
-      # cache mount between jobs, so there is no buildx builder to set up and no cache to
-      # ship to GitHub and back; qvantera-ci-prune ages the build cache out.
+      # SEC-14: a GitHub-hosted runner starts with an empty BuildKit cache, so every build here
+      # is a cold one; nothing is carried between jobs.
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
@@ -92,7 +94,7 @@ jobs:
   promote:
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, qvantera-build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -110,7 +112,7 @@ jobs:
   # request into dev, `:latest` for one into main.
   image-pr:
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
-    runs-on: [self-hosted, qvantera-build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -173,7 +175,7 @@ jobs:
     # failed test still stops the e2e here.
     needs: [test, image-pr]
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
-    runs-on: [self-hosted, qvantera-e2e]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -182,7 +184,10 @@ jobs:
       statuses: write
     env:
       SDK_GITHUB_TOKEN: ${{ secrets.SDK_GITHUB_TOKEN }}
-      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # SEC-14: the deploy e2e image and container install @quadrantcapital/messaging, contracts and
+      # db, which this public repository's GITHUB_TOKEN is not granted (and should not be: a fork's
+      # pull request gets that token). GHCR_READ_TOKEN is a secret, so a fork never sees it.
+      NODE_AUTH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
       # M-351: the system this pull request joins. Into dev: deploy@dev, and `:dev` for every image
       # it does not override. Into main — a promotion or a hotfix — deploy@main and `:latest`,
       # which is what the pilot runs.
@@ -198,7 +203,8 @@ jobs:
       # sibling-owned GHCR packages — measured, not assumed. Two organisation secrets cover
       # the gap, deliberately split by purpose so that neither carries write anywhere:
       #   E2E_CI_TOKEN    fine-grained PAT, Contents:Read on qvantera-deploy — the checkout.
-      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull.
+      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull, and
+      #                   the e2e image's npm install (SEC-14).
       # One token cannot do both: a classic PAT has no "read code" scope short of `repo`,
       # which is write access to every private repository in the organisation.
       - name: Require the two cross-repository tokens
@@ -261,7 +267,7 @@ jobs:
           provenance: false
           tags: qvantera-e2e:ci
           secrets: |
-            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+            NODE_AUTH_TOKEN=${{ secrets.GHCR_READ_TOKEN }}
       - if: steps.record.outputs.skip != 'true'
         run: ./scripts/ci/e2e-stack.sh
       - name: Write the green record
