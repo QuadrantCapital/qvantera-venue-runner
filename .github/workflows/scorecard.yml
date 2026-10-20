@@ -19,7 +19,8 @@ permissions:
 
 jobs:
   scorecard:
-    runs-on: [self-hosted, qvantera]
+    # A public repository never runs on our self-hosted runners (§ D-24, SEC-14).
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     # What Scorecard reads through the API with this job's token on a private repository.
     permissions:
