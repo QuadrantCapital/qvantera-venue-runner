@@ -172,6 +172,12 @@ jobs:
     # image-pr no longer waits for test: the build runners take it while the tests run, and a
     # failed test still stops the e2e here.
     needs: [test, image-pr]
+    # DELIVERY-07: `e2e-pr` is a required check on dev, and GitHub counts a skipped check as passed.
+    # A run that will not test this head — a draft, or a test or image-pr that did not pass — so
+    # carries another name, and the required `e2e-pr` stays missing until a run has really tested it.
+    # Otherwise a draft's skipped e2e-pr lets the pull request merge before its ready run reaches the
+    # e2e (or when that run never starts, qvantera-deploy#187), and a broken image build merges untested.
+    name: ${{ (github.event.pull_request.draft || needs.test.result != 'success' || needs.image-pr.result != 'success') && 'e2e-pr (not run)' || 'e2e-pr' }}
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: [self-hosted, qvantera-e2e]
     timeout-minutes: 20
