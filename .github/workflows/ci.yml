@@ -184,7 +184,10 @@ jobs:
       statuses: write
     env:
       SDK_GITHUB_TOKEN: ${{ secrets.SDK_GITHUB_TOKEN }}
-      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # SEC-14: the deploy e2e image and container install @quadrantcapital/messaging, contracts and
+      # db, which this public repository's GITHUB_TOKEN is not granted (and should not be: a fork's
+      # pull request gets that token). GHCR_READ_TOKEN is a secret, so a fork never sees it.
+      NODE_AUTH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
       # M-351: the system this pull request joins. Into dev: deploy@dev, and `:dev` for every image
       # it does not override. Into main — a promotion or a hotfix — deploy@main and `:latest`,
       # which is what the pilot runs.
@@ -200,7 +203,8 @@ jobs:
       # sibling-owned GHCR packages — measured, not assumed. Two organisation secrets cover
       # the gap, deliberately split by purpose so that neither carries write anywhere:
       #   E2E_CI_TOKEN    fine-grained PAT, Contents:Read on qvantera-deploy — the checkout.
-      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull.
+      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull, and
+      #                   the e2e image's npm install (SEC-14).
       # One token cannot do both: a classic PAT has no "read code" scope short of `repo`,
       # which is write access to every private repository in the organisation.
       - name: Require the two cross-repository tokens
@@ -263,7 +267,7 @@ jobs:
           provenance: false
           tags: qvantera-e2e:ci
           secrets: |
-            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+            NODE_AUTH_TOKEN=${{ secrets.GHCR_READ_TOKEN }}
       - if: steps.record.outputs.skip != 'true'
         run: ./scripts/ci/e2e-stack.sh
       - name: Write the green record
