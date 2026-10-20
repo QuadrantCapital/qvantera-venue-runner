@@ -20,7 +20,7 @@ permissions:
 jobs:
   scorecard:
     # A public repository never runs on our self-hosted runners (§ D-24, SEC-14).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # What Scorecard reads through the API with this job's token on a private repository.
     permissions:
