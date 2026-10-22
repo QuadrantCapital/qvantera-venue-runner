@@ -71,11 +71,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # SEC-14: a GitHub-hosted runner starts with an empty BuildKit cache, so every build here
-      # is a cold one; nothing is carried between jobs.
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      # SEC-14: a GitHub-hosted runner starts with an empty BuildKit cache. ENG-10: the layers are
+      # kept in the Actions cache instead (`type=gha`), so an unchanged layer (the base image, the
+      # installed dependencies) is not built again; a pull request reads dev's cache.
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
           push: true
           provenance: false
           build-args: |
@@ -145,6 +149,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
       - name: The artifact this tree already has
         if: env.PROMOTION == 'true'
         run: |
@@ -160,6 +165,8 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
           push: true
           provenance: false
           build-args: |
@@ -244,6 +251,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_READ_TOKEN }}
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
       # M-351d: deploy's helper, from the same checkout as e2e-stack.sh. The key is that checkout's tree
       # and every image the stack would run, this pull request's own among them, and the record is a
       # commit status on this repository's pull request head — so the one run it saves is a re-run of
@@ -258,6 +266,8 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=backup
+          cache-to: type=gha,mode=max,scope=backup
           file: Dockerfile.backup
           load: true
           push: false
@@ -267,6 +277,8 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=e2e
+          cache-to: type=gha,mode=max,scope=e2e
           file: Dockerfile.e2e
           load: true
           push: false

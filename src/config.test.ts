@@ -35,4 +35,14 @@ describe('runner configuration (M-367)', () => {
     expect(c.auth).toEqual({ kind: 'static', user: 'venue-runner', pass: 'secret' })
     expect(c.natsUrl).toBe('nats://nats:4222')
   })
+
+  it('takes a shortened heartbeat for the e2e, and refuses it in production (ENG-10)', () => {
+    const env = { NATS_URL: 'nats://nats:4222', NATS_USER: 'venue-runner', NATS_PASS: 'secret' }
+    expect(parseConfig(env).heartbeatMs).toBeUndefined()
+    expect(parseConfig({ ...env, QV_ENV: 'development', QV_TEST_RUNNER_HEARTBEAT_MS: '1000' }).heartbeatMs).toBe(1000)
+    expect(() => parseConfig({ ...env, QV_ENV: 'production', QV_TEST_RUNNER_HEARTBEAT_MS: '1000' })).toThrow(
+      /QV_TEST_RUNNER_HEARTBEAT_MS: is a development switch and is refused when QV_ENV=production/,
+    )
+    expect(() => parseConfig({ ...env, QV_TEST_RUNNER_HEARTBEAT_MS: '10' })).toThrow(/QV_TEST_RUNNER_HEARTBEAT_MS/)
+  })
 })

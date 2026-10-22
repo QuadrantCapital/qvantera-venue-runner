@@ -53,6 +53,8 @@ export async function startRunner(deps: {
   maxInflight: number
   version: string
   closeDeadlineMs: number
+  /** The e2e's shortened heartbeat (ENG-10); otherwise `HEARTBEAT_MS`. */
+  heartbeatMs?: number
   log: Log
   /** The platform revoked this runner: it must stop. */
   onRevoked: () => void
@@ -259,7 +261,7 @@ export async function startRunner(deps: {
 
   log.info({ scope, runner, runnerId: identity.runnerId, lanes, instanceId }, 'runner lanes')
   heartbeat()
-  const heartbeats = setInterval(() => void round(), HEARTBEAT_MS)
+  const heartbeats = setInterval(() => void round(), deps.heartbeatMs ?? HEARTBEAT_MS)
   heartbeats.unref?.()
   const lookups = deps.lookup ? setInterval(() => void lookupLanes(), EGRESS_LOOKUP_MS) : undefined
   lookups?.unref?.()
