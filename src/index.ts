@@ -98,6 +98,7 @@ const r = await startRunner({
   maxInflight: cfg.maxInflight,
   version: RUNNER_VERSION,
   closeDeadlineMs: cfg.closeDeadlineMs,
+  ...(cfg.heartbeatMs ? { heartbeatMs: cfg.heartbeatMs } : {}),
   log,
   onRevoked: () => void shutdown('revoked', 1),
 })
