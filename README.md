@@ -125,7 +125,8 @@ fully supports. `QV_RUNNER_VERSION` in `.env` pins a release; `latest` is the ne
 
 ## Troubleshooting
 
-`docker compose logs -f venue-runner` shows what the runner does; `docker compose ps` its health.
+`docker compose logs -f venue-runner` shows what the runner does; `docker compose ps` whether the
+process is alive — not whether it is connected to the platform, which `/ready` below says.
 
 | Symptom | Cause |
 | --- | --- |
@@ -138,7 +139,14 @@ fully supports. `QV_RUNNER_VERSION` in `.env` pins a release; `latest` is the ne
 | Orders refused `no_runner_online` | None of the credential's runners is online, or none has an active lane. |
 | Exchange answers "IP not in whitelist" | Whitelist the lane's address shown on the Runners page. |
 
-The runner's own status: `curl -s 127.0.0.1:3005/health` on the host.
+The runner's own status, on the host:
+
+- `curl -s 127.0.0.1:3005/ready` — whether it can carry requests now: `200` and
+  `{"ready":true,"checks":{"nats":"ok"}}`, or `503` with `nats` not `ok` while it cannot reach the
+  platform, and `{"draining":"failed"}` alone once it is stopping (shut down, or revoked).
+- `curl -s 127.0.0.1:3005/health` — liveness: `200` with `"ok": true` whenever the process answers,
+  connected or not, plus its identity, version, lanes, `connected`, and `draining` — set by the
+  runner's administrator on the platform, which then sends it nothing new.
 
 ## Settings
 
@@ -149,7 +157,7 @@ The runner's own status: `curl -s 127.0.0.1:3005/health` on the host.
 | `RUNNER_EGRESS_IPS` | `auto` (default) or a comma-separated list of this host's addresses. |
 | `RUNNER_EGRESS_IP_URL` | A plain-text public-IP lookup, asked through each lane. Optional. |
 | `RUNNER_NAME` | A name in the runner's logs. Optional. |
-| `RUNNER_PORT` | Local port of `/health` and `/metrics`, on 127.0.0.1. Default 3005. |
+| `RUNNER_PORT` | Local port of `/health`, `/ready` and `/metrics`, on 127.0.0.1. Default 3005. |
 | `QV_RUNNER_VERSION` | Image tag. Default `latest`. |
 | `LOG_LEVEL` | `info` (default), `debug`, `warn`, … |
 

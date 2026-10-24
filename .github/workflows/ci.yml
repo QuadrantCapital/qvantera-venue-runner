@@ -18,9 +18,12 @@ permissions:
   contents: read
   packages: read
 
+# SEC-14 (owner, 2026-10-21): this repository is public, so every job runs on GitHub-hosted
+# runners. The organisation's self-hosted group refuses public repositories (D-24): a fork's pull
+# request must never run its code on the machines next to production.
 jobs:
   test:
-    runs-on: [self-hosted, qvantera]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -46,7 +49,7 @@ jobs:
   image:
     needs: test
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/heads/hotfix/'))
-    runs-on: [self-hosted, qvantera-build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -68,12 +71,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # D-24: on our runners the Docker daemon's own BuildKit keeps every layer and the Yarn
-      # cache mount between jobs, so there is no buildx builder to set up and no cache to
-      # ship to GitHub and back; qvantera-ci-prune ages the build cache out.
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      # SEC-14: a GitHub-hosted runner starts with an empty BuildKit cache. ENG-10: the layers are
+      # kept in the Actions cache instead (`type=gha`), so an unchanged layer (the base image, the
+      # installed dependencies) is not built again; a pull request reads dev's cache.
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
           push: true
           provenance: false
           build-args: |
@@ -92,7 +98,7 @@ jobs:
   promote:
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, qvantera-build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -110,7 +116,7 @@ jobs:
   # request into dev, `:latest` for one into main.
   image-pr:
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
-    runs-on: [self-hosted, qvantera-build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -143,6 +149,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
       - name: The artifact this tree already has
         if: env.PROMOTION == 'true'
         run: |
@@ -158,6 +165,8 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
           push: true
           provenance: false
           build-args: |
@@ -172,8 +181,14 @@ jobs:
     # image-pr no longer waits for test: the build runners take it while the tests run, and a
     # failed test still stops the e2e here.
     needs: [test, image-pr]
+    # DELIVERY-07: `e2e-pr` is a required check on dev, and GitHub counts a skipped check as passed.
+    # A run that will not test this head — a draft, or a test or image-pr that did not pass — so
+    # carries another name, and the required `e2e-pr` stays missing until a run has really tested it.
+    # Otherwise a draft's skipped e2e-pr lets the pull request merge before its ready run reaches the
+    # e2e (or when that run never starts, qvantera-deploy#187), and a broken image build merges untested.
+    name: ${{ (github.event.pull_request.draft || needs.test.result != 'success' || needs.image-pr.result != 'success') && 'e2e-pr (not run)' || 'e2e-pr' }}
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
-    runs-on: [self-hosted, qvantera-e2e]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -182,7 +197,10 @@ jobs:
       statuses: write
     env:
       SDK_GITHUB_TOKEN: ${{ secrets.SDK_GITHUB_TOKEN }}
-      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # SEC-14: the deploy e2e image and container install @quadrantcapital/messaging, contracts and
+      # db, which this public repository's GITHUB_TOKEN is not granted (and should not be: a fork's
+      # pull request gets that token). GHCR_READ_TOKEN is a secret, so a fork never sees it.
+      NODE_AUTH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
       # M-351: the system this pull request joins. Into dev: deploy@dev, and `:dev` for every image
       # it does not override. Into main — a promotion or a hotfix — deploy@main and `:latest`,
       # which is what the pilot runs.
@@ -198,7 +216,8 @@ jobs:
       # sibling-owned GHCR packages — measured, not assumed. Two organisation secrets cover
       # the gap, deliberately split by purpose so that neither carries write anywhere:
       #   E2E_CI_TOKEN    fine-grained PAT, Contents:Read on qvantera-deploy — the checkout.
-      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull.
+      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull, and
+      #                   the e2e image's npm install (SEC-14).
       # One token cannot do both: a classic PAT has no "read code" scope short of `repo`,
       # which is write access to every private repository in the organisation.
       - name: Require the two cross-repository tokens
@@ -232,6 +251,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_READ_TOKEN }}
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
       # M-351d: deploy's helper, from the same checkout as e2e-stack.sh. The key is that checkout's tree
       # and every image the stack would run, this pull request's own among them, and the record is a
       # commit status on this repository's pull request head — so the one run it saves is a re-run of
@@ -246,6 +266,8 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=backup
+          cache-to: type=gha,mode=max,scope=backup
           file: Dockerfile.backup
           load: true
           push: false
@@ -255,13 +277,15 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=e2e
+          cache-to: type=gha,mode=max,scope=e2e
           file: Dockerfile.e2e
           load: true
           push: false
           provenance: false
           tags: qvantera-e2e:ci
           secrets: |
-            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+            NODE_AUTH_TOKEN=${{ secrets.GHCR_READ_TOKEN }}
       - if: steps.record.outputs.skip != 'true'
         run: ./scripts/ci/e2e-stack.sh
       - name: Write the green record

@@ -41,12 +41,18 @@ const schema = z
     RUNNER_NAME: optionalText,
     RUNNER_MAX_INFLIGHT: intFrom(64, 1),
     RUNNER_PORT: intFrom(3005, 0),
-    // The host network on a customer's machine: /health and /metrics stay on loopback unless asked.
+    // The host network on a customer's machine: /health, /ready and /metrics stay on loopback unless asked.
     RUNNER_HOST: optionalText.transform((v) => v ?? '127.0.0.1'),
     // On stop, a request already relayed is waited for: one cut mid-flight is an ambiguous create
     // made by the shutdown itself. Above the venue HTTP timeout spot-gateway sets (20 s).
     NATS_CLOSE_DEADLINE_MS: intFrom(25_000, 0),
     LOG_LEVEL: z.enum(LOG_LEVELS).optional().default('info'),
+    QV_ENV: optionalText,
+    // A development switch (ENG-10): the e2e shortens the heartbeat with the staleness Control and
+    // the gateway judge it by, so an outage is seen in seconds. Refused when QV_ENV=production.
+    QV_TEST_RUNNER_HEARTBEAT_MS: optionalText
+      .transform((v) => (v === undefined ? undefined : Number(v)))
+      .pipe(z.number().int().min(250).optional()),
   })
   .superRefine((c, ctx) => {
     const token = c.QV_RUNNER_TOKEN !== undefined
@@ -60,6 +66,13 @@ const schema = z
     }
     if (user && (c.NATS_USER === undefined || c.NATS_PASS === undefined)) {
       ctx.addIssue({ code: 'custom', path: ['NATS_PASS'], message: 'NATS_USER and NATS_PASS go together' })
+    }
+    if (c.QV_TEST_RUNNER_HEARTBEAT_MS !== undefined && c.QV_ENV === 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['QV_TEST_RUNNER_HEARTBEAT_MS'],
+        message: 'is a development switch and is refused when QV_ENV=production',
+      })
     }
     if (c.QV_PLATFORM_URL === undefined && c.NATS_URL === undefined) {
       ctx.addIssue({ code: 'custom', path: ['QV_PLATFORM_URL'], message: "is required: the platform's https:// address" })
@@ -76,6 +89,8 @@ export type RunnerConfig = {
   port: number
   host: string
   closeDeadlineMs: number
+  /** Set only by the e2e (`QV_TEST_RUNNER_HEARTBEAT_MS`); otherwise the runner's own `HEARTBEAT_MS`. */
+  heartbeatMs?: number
   logLevel: (typeof LOG_LEVELS)[number]
 }
 
@@ -119,6 +134,7 @@ export function parseConfig(env: Record<string, string | undefined>): RunnerConf
     port: c.RUNNER_PORT,
     host: c.RUNNER_HOST,
     closeDeadlineMs: c.NATS_CLOSE_DEADLINE_MS,
+    ...(c.QV_TEST_RUNNER_HEARTBEAT_MS ? { heartbeatMs: c.QV_TEST_RUNNER_HEARTBEAT_MS } : {}),
     logLevel: c.LOG_LEVEL,
   }
 }

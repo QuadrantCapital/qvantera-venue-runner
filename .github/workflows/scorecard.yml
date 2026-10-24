@@ -1,0 +1,50 @@
+name: scorecard
+
+# DELIVERY-07: OpenSSF Scorecard on every repository. The CLI, not ossf/scorecard-action: the action
+# refuses every branch but the default one, main, while work lands on dev; and publishing a result or
+# uploading it to code scanning needs a public repository or GitHub Advanced Security. The result is
+# this job's summary and a JSON artifact.
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    # A change to how Scorecard runs is proved by running it.
+    paths: ['.github/workflows/scorecard.yml']
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scorecard:
+    # A public repository never runs on our self-hosted runners (§ D-24, SEC-14).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # What Scorecard reads through the API with this job's token on a private repository.
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      issues: read
+      pull-requests: read
+      statuses: read
+    steps:
+      - name: Scorecard
+        env:
+          GITHUB_AUTH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          RESULT: ${{ runner.temp }}/scorecard.json
+        run: |
+          set -euo pipefail
+          docker run --rm -e GITHUB_AUTH_TOKEN \
+            ghcr.io/ossf/scorecard:v5.5.0@sha256:3f24714e9366917adb7a05635382c97dfecb14b21eaef3dfa2ea48c8e23e0795 \
+            --repo="github.com/${GITHUB_REPOSITORY}" --commit="${COMMIT}" --format=json --show-details > "${RESULT}"
+          jq -r '"Scorecard \(.score) / 10 at \(.repo.commit)\n\n| Check | Score | Reason |\n| --- | --- | --- |",
+            (.checks[] | "| \(.name) | \(.score) | \(.reason) |")' "${RESULT}" >> "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scorecard
+          path: ${{ runner.temp }}/scorecard.json
+          retention-days: 30

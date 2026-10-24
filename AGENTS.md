@@ -28,8 +28,8 @@ does not control. So:
   spot-gateway. Invariant 3 (`../AGENTS.md`) and § D-18 are why.
 - **It depends on the contract bindings only** — `@quadrantcapital/proto` and the frame codec
   `@quadrantcapital/wire`. Never on `db`, `messaging`, `observability` or anything from
-  qvantera-trading: it is installed by people who are not this team, and the runner/v1 contract is
-  the whole of what it shares with the platform.
+  qvantera-trading or qvantera-venue: it is installed by people who are not this team, and the
+  runner/v1 contract is the whole of what it shares with the platform.
 - **It never decides where a request goes.** spot-gateway chooses the runner and the lane of every
   request and socket, and counts the venue's limits (M-315); the runner binds the lane it is told.
 - **It never retries a request.** One that went out and was not answered is spot-gateway's to call
@@ -58,8 +58,9 @@ with one token — each message reaches one of them, never both.
 (`src/nats-harness.ts`) and skip only without Docker.
 
 The key-material test stays with the transport that builds every runner-bound message:
-qvantera-trading `apps/spot-gateway/src/runner-key-material.test.ts`. Nothing here could add a
-secret to a message — the runner never has one — so that is where the property is held.
+qvantera-venue `apps/spot-gateway/src/runner-key-material.test.ts` (spot-gateway's repository since
+REPO-02). Nothing here could add a secret to a message — the runner never has one — so that is
+where the property is held.
 
 ## Releases
 
