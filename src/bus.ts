@@ -143,6 +143,12 @@ export async function openBus(opts: BusOptions) {
 
     inflight: () => current.inflight,
     connected: () => !current.nc.isClosed() && current.nc.info !== undefined,
+    /**
+     * A PING answered now (`/ready`, M-805a): `rtt()` refuses at once while the connection is down
+     * or closed, and catches a link that went silent without a reset, which `connected()` reports
+     * as up until the client's own ping interval (two minutes) gives up on it.
+     */
+    ping: () => current.nc.rtt(),
 
     /** Shutdown: no new message is taken, the ones being handled are answered, then the connection closes. */
     async close(deadlineMs: number): Promise<void> {

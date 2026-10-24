@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install or reconfigure the Qvantera venue runner on this host (README.md).
 #
-#   ./install.sh --platform https://qvantera.example.com --token qv_rnr_… [--egress auto|<ip>,<ip>]
+#   bash install.sh --platform https://qvantera.example.com --token qv_rnr_… [--egress auto|<ip>,<ip>]
 #                [--egress-ip-url <url>] [--name <name>] [--version <tag>]
 #
 # Checks Docker, writes `.env` beside this script (mode 600 — the token is the runner's password),
@@ -92,7 +92,7 @@ fi
 
 docker compose exec -T venue-runner node -e "
 const h = JSON.parse(process.argv[1])
-console.log('venue runner ' + h.runner + (h.scope ? ' (' + h.scope + ')' : '') + ' — ' + (h.ok ? 'connected' : 'not connected') + ', version ' + h.version + (h.outdated ? ' (outdated: update it)' : ''))
+console.log('venue runner ' + h.runner + (h.scope ? ' (' + h.scope + ')' : '') + ' — ' + (h.connected ? 'connected' : 'not connected') + ', version ' + h.version + (h.outdated ? ' (outdated: update it)' : ''))
 for (const l of h.lanes) console.log('  lane ' + (l.localAddress || 'default route') + ' -> ' + l.publicAddress + '  ' + l.state)
 console.log('Whitelist each active lane\'s address at the venue.')
 " "${health}"

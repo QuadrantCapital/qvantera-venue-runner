@@ -39,6 +39,8 @@ export type Identity = { scope: string; runner: string; runnerId: string; name: 
  * counts each lane's venue limit, and a request moved to another lane would spend a budget it did
  * not count.
  */
+export type Runner = Awaited<ReturnType<typeof startRunner>>
+
 export async function startRunner(deps: {
   bus: RunnerBus
   /** The NATS user: its subjects' `<runner>` token, and the subject of its hello. */
@@ -51,6 +53,8 @@ export async function startRunner(deps: {
   maxInflight: number
   version: string
   closeDeadlineMs: number
+  /** The e2e's shortened heartbeat (ENG-10); otherwise `HEARTBEAT_MS`. */
+  heartbeatMs?: number
   log: Log
   /** The platform revoked this runner: it must stop. */
   onRevoked: () => void
@@ -257,7 +261,7 @@ export async function startRunner(deps: {
 
   log.info({ scope, runner, runnerId: identity.runnerId, lanes, instanceId }, 'runner lanes')
   heartbeat()
-  const heartbeats = setInterval(() => void round(), HEARTBEAT_MS)
+  const heartbeats = setInterval(() => void round(), deps.heartbeatMs ?? HEARTBEAT_MS)
   heartbeats.unref?.()
   const lookups = deps.lookup ? setInterval(() => void lookupLanes(), EGRESS_LOOKUP_MS) : undefined
   lookups?.unref?.()
