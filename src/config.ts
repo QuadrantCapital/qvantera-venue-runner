@@ -50,7 +50,9 @@ const schema = z
     QV_ENV: optionalText,
     // A development switch (ENG-10): the e2e shortens the heartbeat with the staleness Control and
     // the gateway judge it by, so an outage is seen in seconds. Refused when QV_ENV=production.
-    QV_TEST_RUNNER_HEARTBEAT_MS: optionalText.pipe(z.coerce.number().int().min(250).optional()),
+    QV_TEST_RUNNER_HEARTBEAT_MS: optionalText
+      .transform((v) => (v === undefined ? undefined : Number(v)))
+      .pipe(z.number().int().min(250).optional()),
   })
   .superRefine((c, ctx) => {
     const token = c.QV_RUNNER_TOKEN !== undefined
