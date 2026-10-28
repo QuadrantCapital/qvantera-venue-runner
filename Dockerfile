@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:22-bookworm AS builder
+FROM node:24-bookworm AS builder
 WORKDIR /app
 RUN corepack enable
 COPY package.json yarn.lock .yarnrc.yml .npmrc ./
@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/root/.yarn/berry/cache \
   && rm -rf dist/*.test.* \
   && yarn workspaces focus --production
 
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 WORKDIR /app
 COPY --from=builder --chown=node:node /app/package.json ./
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules

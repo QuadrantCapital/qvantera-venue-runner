@@ -163,6 +163,6 @@ The runner's own status, on the host:
 
 ## Development
 
-Node 22, Yarn 4 (Corepack). `yarn install`, `yarn test` (the NATS tests start a throwaway
+Node 24, Yarn 4 (Corepack). `yarn install`, `yarn test` (the NATS tests start a throwaway
 nats-server in Docker), `yarn typecheck`, `yarn lint`, `yarn build`. Rules for changing it:
 [AGENTS.md](AGENTS.md).
