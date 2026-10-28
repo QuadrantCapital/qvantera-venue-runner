@@ -4,7 +4,7 @@ import { connect } from '@nats-io/transport-node'
 
 /**
  * A throwaway nats-server for one test file, with the configuration the test needs — users, the
- * WebSocket listener, an auth callout — on ports Docker picks. `nats:2.10-alpine`, the version the
+ * WebSocket listener, an auth callout — on ports Docker picks. `nats:2.15.2-alpine`, the version the
  * platform runs. Tests only; the runner never imports it.
  *
  * The configuration goes in through the environment and is written inside the container, so this
@@ -39,7 +39,7 @@ export async function startNats(conf: string, auth: { user: string; pass: string
       'run', '-d', '--name', name, ...labels,
       '-p', '127.0.0.1::4222', '-p', '127.0.0.1::8080',
       '-e', `NATS_CONF=port: 4222\nwebsocket { port: 8080, no_tls: true }\n${conf}`,
-      '--entrypoint', 'sh', 'nats:2.10-alpine',
+      '--entrypoint', 'sh', 'nats:2.15.2-alpine',
       '-c', 'printf "%s\\n" "$NATS_CONF" > /tmp/nats.conf && exec nats-server -c /tmp/nats.conf',
     ],
     { encoding: 'utf8' },

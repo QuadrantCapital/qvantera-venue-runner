@@ -54,7 +54,7 @@ with one token — each message reaches one of them, never both.
 
 `yarn build` · `yarn test` · `yarn typecheck` · `yarn lint` · `yarn audit:deps` · `yarn dev`
 
-`*.nats.test.ts` start a throwaway `nats:2.10-alpine` with their own configuration
+`*.nats.test.ts` start a throwaway `nats:2.15.2-alpine` with their own configuration
 (`src/nats-harness.ts`) and skip only without Docker.
 
 The key-material test stays with the transport that builds every runner-bound message:
