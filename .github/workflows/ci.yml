@@ -261,18 +261,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/ci/green-status.sh check
-      - name: Build backup image (load for compose)
-        if: steps.record.outputs.skip != 'true'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
-        with:
-          context: .
-          cache-from: type=gha,scope=backup
-          cache-to: type=gha,mode=max,scope=backup
-          file: Dockerfile.backup
-          load: true
-          push: false
-          provenance: false
-          tags: ghcr.io/quadrantcapital/backup:latest
       - if: steps.record.outputs.skip != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
