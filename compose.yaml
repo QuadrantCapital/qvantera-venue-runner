@@ -21,6 +21,7 @@ services:
       QV_RUNNER_TOKEN: ${QV_RUNNER_TOKEN:?set QV_RUNNER_TOKEN in .env — the token shown when you registered the runner}
       RUNNER_EGRESS_IPS: ${RUNNER_EGRESS_IPS:-auto}
       RUNNER_EGRESS_IP_URL: ${RUNNER_EGRESS_IP_URL:-}
+      RUNNER_ALLOWED_HOSTS: ${RUNNER_ALLOWED_HOSTS:-}
       RUNNER_NAME: ${RUNNER_NAME:-}
       RUNNER_PORT: ${RUNNER_PORT:-3005}
       LOG_LEVEL: ${LOG_LEVEL:-info}

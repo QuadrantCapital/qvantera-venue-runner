@@ -99,6 +99,20 @@ spread by lanes — only per-address limits are.
 - If an exchange refuses a lane's address (not whitelisted), the platform stops using that lane until
   the runner's next report; whitelist it and it is used again.
 
+## Limiting where it connects
+
+On the host network the runner can reach whatever the host reaches, its own loopback and private
+networks included. On a host that runs other services, list the exchange hosts it may use in `.env`
+— for MEXC and Gate:
+
+```bash
+RUNNER_ALLOWED_HOSTS=api.mexc.com,wbs-api.mexc.com,api.gateio.ws
+```
+
+A request or stream for any other host is then refused before anything is sent, and logged with
+that host. `docker compose logs venue-runner | grep -m1 'venue-runner starting'` shows the list in
+force (`"allowedHosts":"any"` when unset).
+
 ## Several runners
 
 Register a runner per host and select several for a credential: the platform uses the ones that are
@@ -156,6 +170,7 @@ The runner's own status, on the host:
 | `QV_RUNNER_TOKEN` | The runner's token. Required. |
 | `RUNNER_EGRESS_IPS` | `auto` (default) or a comma-separated list of this host's addresses. |
 | `RUNNER_EGRESS_IP_URL` | A plain-text public-IP lookup, asked through each lane. Optional. |
+| `RUNNER_ALLOWED_HOSTS` | The only exchange hosts it may connect to, comma-separated. Optional; unset, any. |
 | `RUNNER_NAME` | A name in the runner's logs. Optional. |
 | `RUNNER_PORT` | Local port of `/health`, `/ready` and `/metrics`, on 127.0.0.1. Default 3005. |
 | `QV_RUNNER_VERSION` | Image tag. Default `latest`. |
