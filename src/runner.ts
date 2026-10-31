@@ -38,6 +38,11 @@ export type Identity = { scope: string; runner: string; runnerId: string; name: 
  * have active is refused unsent (`lane_unavailable`), never sent from another lane: spot-gateway
  * counts each lane's venue limit, and a request moved to another lane would spend a budget it did
  * not count.
+ *
+ * Its operator may bound where anything goes (`RUNNER_ALLOWED_HOSTS`): on the host network the
+ * runner reaches whatever the host does — its loopback, its private networks — so a host that runs
+ * other services lists the venue hosts, and a request or socket for any other host is refused
+ * unsent (`lane_failed`, `connect_failed`), as one that never connected.
  */
 export type Runner = Awaited<ReturnType<typeof startRunner>>
 
@@ -51,6 +56,8 @@ export async function startRunner(deps: {
   clients: Map<string, AxiosInstance>
   lookup: ((localAddress: string) => Promise<string | null>) | null
   maxInflight: number
+  /** `RUNNER_ALLOWED_HOSTS`; unset, any host. */
+  allowedHosts?: readonly string[]
   version: string
   closeDeadlineMs: number
   /** The e2e's shortened heartbeat (ENG-10); otherwise `HEARTBEAT_MS`. */
@@ -178,11 +185,27 @@ export async function startRunner(deps: {
     return active.some((l) => l.localAddress === named) ? named : null
   }
 
+  const allowedHosts = deps.allowedHosts ? new Set(deps.allowedHosts) : null
+  /** Whether a URL goes to a host the operator allows; a refusal is logged by host alone. */
+  const allowed = (url: string): boolean => {
+    if (allowedHosts === null) return true
+    let host = ''
+    try {
+      host = new URL(url).hostname.toLowerCase()
+    } catch {
+      // Not a URL: nothing to send it to.
+    }
+    if (allowedHosts.has(host)) return true
+    log.warn({ host }, 'runner refused a destination outside RUNNER_ALLOWED_HOSTS')
+    return false
+  }
+
   // Above the cap a request is answered `busy` at once: a request waiting in a queue here is
   // exactly the silent queue the cap exists to prevent.
   bus.subscribe(subjects.runnerHttp(scope, runner), async (msg) => {
     if (msg.type !== 'RunnerHttpRequest') return
     const req = msg.payload as WireMessageByType['RunnerHttpRequest']
+    if (!allowed(req.url)) return { type: 'RunnerHttpResponse', payload: { error: 'lane_failed' } }
     if (inflight >= deps.maxInflight) return { type: 'RunnerHttpResponse', payload: { error: 'busy' } }
     const lane = laneFor(req.lane)
     const client = lane === null ? undefined : deps.clients.get(lane)
@@ -198,6 +221,7 @@ export async function startRunner(deps: {
   bus.subscribe(subjects.runnerWsOpen(scope, runner), async (msg) => {
     if (msg.type !== 'RunnerWsOpenRequest') return
     const body = msg.payload as WireMessageByType['RunnerWsOpenRequest']
+    if (!allowed(body.url)) return { type: 'RunnerWsOpenResponse', payload: { instanceId, error: 'connect_failed' } }
     const lane = laneFor(body.lane)
     if (lane === null) return { type: 'RunnerWsOpenResponse', payload: { instanceId, error: 'lane_unavailable' } }
     const opened = await relay.open(body.socketId, body.url, lane)

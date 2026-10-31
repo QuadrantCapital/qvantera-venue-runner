@@ -17,6 +17,19 @@ describe('runner configuration (M-367)', () => {
     expect(c.egress).toEqual(['51.79.202.101', '15.235.228.57'])
   })
 
+  it('takes the hosts it may send to, and refuses a URL or an empty list in their place', () => {
+    const base = { QV_PLATFORM_URL: 'https://p.example', QV_RUNNER_TOKEN: TOKEN }
+    expect(parseConfig(base).allowedHosts).toBeUndefined()
+    expect(parseConfig({ ...base, RUNNER_ALLOWED_HOSTS: ' API.mexc.com, wbs-api.mexc.com,api.gateio.ws ' }).allowedHosts).toEqual([
+      'api.mexc.com',
+      'wbs-api.mexc.com',
+      'api.gateio.ws',
+    ])
+    expect(() => parseConfig({ ...base, RUNNER_ALLOWED_HOSTS: 'https://api.mexc.com' })).toThrow(/RUNNER_ALLOWED_HOSTS: "https:\/\/api.mexc.com" is not a host name/)
+    expect(() => parseConfig({ ...base, RUNNER_ALLOWED_HOSTS: 'api.mexc.com:443' })).toThrow(/is not a host name/)
+    expect(() => parseConfig({ ...base, RUNNER_ALLOWED_HOSTS: ' , ' })).toThrow(/RUNNER_ALLOWED_HOSTS: names no host/)
+  })
+
   it('derives the WebSocket address under a path prefix', () => {
     expect(natsUrlFor('https://p.example/qv/')).toBe('wss://p.example/qv/nats')
     expect(natsUrlFor('http://localhost:8080')).toBe('ws://localhost:8080/nats')

@@ -48,7 +48,8 @@ const request = (url: string, lane = '', timeoutMs = 2_000) => ({ method: 'GET',
  * The runner over a real nats-server as the platform's hosted runner logs in (M-366): a static
  * user, `platform` scope. What spot-gateway sends on the runner's subjects comes back as the venue's
  * answer from the lane it named; the in-flight cap answers `busy` instead of queueing; the heartbeat
- * carries the lanes; the platform's hello reply selects them without a restart.
+ * carries the lanes; the platform's hello reply selects them without a restart; a host outside its
+ * allowed hosts is refused unsent.
  */
 const name = `venue-runner-${Math.random().toString(36).slice(2, 8)}`
 const server: NatsServer | null = await startNats(
@@ -129,6 +130,8 @@ describeNats('venue runner over NATS (M-366, M-367)', () => {
       clients,
       lookup: (local) => lookupEgressIp(clients.get(local)!, `${base}/whoami`),
       maxInflight: 2,
+      // The venue is 127.0.0.1; `localhost` reaches the same servers and is not allowed.
+      allowedHosts: ['127.0.0.1'],
       version: '1.0.0',
       closeDeadlineMs: 5_000,
       log,
@@ -187,6 +190,19 @@ describeNats('venue runner over NATS (M-366, M-367)', () => {
     expect(venueSaw).toEqual([])
   })
 
+  it('refuses a request for a host outside RUNNER_ALLOWED_HOSTS, unsent, as one that never connected', async () => {
+    venueSaw.length = 0
+    for (const url of [`${base.replace('127.0.0.1', 'localhost')}/api/v3/order`, 'not a url']) {
+      const res = await gw.request<'RunnerHttpRequest', WireMessageByType['RunnerHttpResponse']>(
+        subjects.runnerHttp('platform', name),
+        'RunnerHttpRequest',
+        request(url, '127.0.0.1'),
+      )
+      expect(res.error).toBe('lane_failed')
+    }
+    expect(venueSaw).toEqual([])
+  })
+
   it('answers busy above its cap at once, sending nothing, rather than queueing the request', async () => {
     const held = [0, 1].map(() =>
       gw.request<'RunnerHttpRequest', WireMessageByType['RunnerHttpResponse']>(
@@ -223,6 +239,20 @@ describeNats('venue runner over NATS (M-366, M-367)', () => {
     egress = []
     await until(() => heartbeats.at(-1)?.lanes[0]?.state === 'active', 25_000)
   }, 60_000)
+
+  it('refuses a socket for a host outside RUNNER_ALLOWED_HOSTS, opening nothing', async () => {
+    let connections = 0
+    const counted = () => (connections += 1)
+    ws.on('connection', counted)
+    const refused = await gw.request<'RunnerWsOpenRequest', WireMessageByType['RunnerWsOpenResponse']>(
+      subjects.runnerWsOpen('platform', name),
+      'RunnerWsOpenRequest',
+      { socketId: 'sock-refused', url: wsUrl.replace('127.0.0.1', 'localhost'), lane: '127.0.0.1' },
+    )
+    ws.off('connection', counted)
+    expect(refused).toEqual({ instanceId: runner.instanceId, error: 'connect_failed' })
+    expect(connections).toBe(0)
+  })
 
   it('holds a venue socket from its lane: open, frames both ways, and closed when the runner shuts it down', async () => {
     const frames: string[] = []

@@ -15,6 +15,9 @@ import { z } from 'zod'
 /** `qv_rnr_<prefix>_<secret>`: twelve hex digits that name the runner, then 32 random bytes. */
 export const TOKEN_FORMAT = /^qv_rnr_([0-9a-f]{12})_([A-Za-z0-9_-]{43})$/
 
+/** A host name or an address as a URL's hostname gives it: no scheme, no port, no path. */
+const HOST_NAME = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/
+
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const
 
 const intFrom = (fallback: number, min: number) =>
@@ -38,6 +41,11 @@ const schema = z
     NATS_PASS: optionalText,
     RUNNER_EGRESS_IPS: optionalText.transform((v) => v ?? 'auto'),
     RUNNER_EGRESS_IP_URL: optionalText.pipe(z.string().url().optional()),
+    RUNNER_ALLOWED_HOSTS: optionalText.transform((v) =>
+      v?.split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s !== ''),
+    ),
     RUNNER_NAME: optionalText,
     RUNNER_MAX_INFLIGHT: intFrom(64, 1),
     RUNNER_PORT: intFrom(3005, 0),
@@ -74,6 +82,14 @@ const schema = z
         message: 'is a development switch and is refused when QV_ENV=production',
       })
     }
+    if (c.RUNNER_ALLOWED_HOSTS?.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['RUNNER_ALLOWED_HOSTS'], message: 'names no host: leave it unset, or list the venue hosts' })
+    }
+    for (const host of c.RUNNER_ALLOWED_HOSTS ?? []) {
+      if (!HOST_NAME.test(host)) {
+        ctx.addIssue({ code: 'custom', path: ['RUNNER_ALLOWED_HOSTS'], message: `"${host}" is not a host name (api.mexc.com, not a URL)` })
+      }
+    }
     if (c.QV_PLATFORM_URL === undefined && c.NATS_URL === undefined) {
       ctx.addIssue({ code: 'custom', path: ['QV_PLATFORM_URL'], message: "is required: the platform's https:// address" })
     }
@@ -84,6 +100,11 @@ export type RunnerConfig = {
   auth: { kind: 'token'; user: string; pass: string } | { kind: 'static'; user: string; pass: string }
   egress: 'auto' | string[]
   egressIpUrl?: string
+  /**
+   * `RUNNER_ALLOWED_HOSTS`: the only hosts a relayed request or socket may go to. Unset, any — the
+   * runner sends wherever spot-gateway signed for. Set, anything else is refused unsent.
+   */
+  allowedHosts?: string[]
   name?: string
   maxInflight: number
   port: number
@@ -129,6 +150,7 @@ export function parseConfig(env: Record<string, string | undefined>): RunnerConf
       : { kind: 'static', user: c.NATS_USER as string, pass: c.NATS_PASS as string },
     egress,
     ...(c.RUNNER_EGRESS_IP_URL ? { egressIpUrl: c.RUNNER_EGRESS_IP_URL } : {}),
+    ...(c.RUNNER_ALLOWED_HOSTS ? { allowedHosts: c.RUNNER_ALLOWED_HOSTS } : {}),
     ...(c.RUNNER_NAME ? { name: c.RUNNER_NAME } : {}),
     maxInflight: c.RUNNER_MAX_INFLIGHT,
     port: c.RUNNER_PORT,

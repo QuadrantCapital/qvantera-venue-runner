@@ -32,6 +32,7 @@ does not control. So:
   runner/v1 contract is the whole of what it shares with the platform.
 - **It never decides where a request goes.** spot-gateway chooses the runner and the lane of every
   request and socket, and counts the venue's limits (M-315); the runner binds the lane it is told.
+  The one bound is its operator's: `RUNNER_ALLOWED_HOSTS`, when set, refuses any other host unsent.
 - **It never retries a request.** One that went out and was not answered is spot-gateway's to call
   ambiguous (§ D-9).
 - It reaches the platform outbound only, as a NATS client over the platform's WebSocket listener.
