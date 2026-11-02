@@ -3,6 +3,8 @@ name: prune-pr-images
 # The pre-merge e2e (M-411) pushes a `pr-<n>` tag per image per pull request and nothing
 # deletes it, so GHCR would grow three image versions per pull request forever. A pull request
 # older than a week is either merged or abandoned; either way its images have done their job.
+# DELIVERY-01: the same for `build-<run>-<attempt>`, the tag an image has until supply-chain.sh has
+# scanned, signed and tagged it. A version that still has only that tag failed its gate.
 
 on:
   schedule:
@@ -18,18 +20,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Delete pr-* image versions older than 7 days
+      - name: Delete pr-* and build-* image versions older than 7 days
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PACKAGE: venue-runner
         run: |
           set -euo pipefail
           cutoff=$(date -u -d '7 days ago' +%s)
-          # `all(startswith("pr-"))` and not `any`: a version that also carries :latest or a
+          # `all(…)` and not `any`: a version that also carries :latest or a
           # :sha tag is a release artifact that happens to have been reused, and must survive.
           gh api --paginate "/orgs/QuadrantCapital/packages/container/${PACKAGE}/versions" \
             --jq '.[] | select((.metadata.container.tags | length) > 0)
-                      | select(.metadata.container.tags | all(startswith("pr-")))
+                      | select(.metadata.container.tags | all(startswith("pr-") or startswith("build-")))
                       | "\(.id) \(.updated_at)"' |
           while read -r id updated; do
             if [ "$(date -u -d "${updated}" +%s)" -lt "${cutoff}" ]; then
