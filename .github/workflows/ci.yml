@@ -37,6 +37,8 @@ jobs:
       - run: yarn install --immutable
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # M-701c: every dependency a version or a workspace, ours from another repository exact.
+      - run: yarn constraints
       - run: yarn typecheck
       - run: yarn lint
       - run: ./.github/check-subject-literals.sh
