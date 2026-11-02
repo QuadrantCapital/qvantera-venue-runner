@@ -41,6 +41,9 @@ jobs:
       - run: yarn constraints
       # DELIVERY-01: no base image by tag; the supply-chain and promote scripts against shims.
       - run: ./.github/supply-chain.sh pins Dockerfile
+      # DELIVERY-01: no workflow asks for an OIDC token or runs a keyless signing action; images are
+      # signed with this repository's key only (owner, 2026-11-02).
+      - run: ./.github/supply-chain.sh no-oidc .github/workflows
       - run: bash .github/supply-chain.test.sh
       - run: bash .github/promote-image.test.sh
       - run: yarn typecheck
@@ -60,7 +63,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # M-500: the identity the image records. On a pull request HEAD is the merge commit
@@ -97,10 +101,33 @@ jobs:
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           tags: ghcr.io/quadrantcapital/venue-runner:build-${{ github.run_id }}-${{ github.run_attempt }}
-      # DELIVERY-01: the build is pushed to a staging tag only. supply-chain.sh scans the digest, attests
-      # its SBOM, signs it and verifies the signature, and only then gives it `:tree-*`, `:sha-*` and, on
-      # dev, `:dev` — so no tag anything resolves points at an unsigned image. A failed gate leaves
-      # `:build-*` and nothing else; prune-pr-images ages it out.
+
+  # DELIVERY-01: the one job that holds the signing key. The build above pushed `:build-*` and holds no
+  # key; this job scans that digest, attaches the SBOM, signs with this repository's own key, checks the
+  # signature against .github/cosign.pub, and only then gives the digest `:tree-*`, `:sha-*` and, on dev,
+  # `:dev` — so no tag anything resolves points at an unsigned image. A failed gate leaves `:build-*` and
+  # nothing else; prune-pr-images ages it out. COSIGN_PRIVATE_KEY and COSIGN_PASSWORD are secrets of the
+  # `signing` environment, whose deployment branches are dev and hotfix/*: a job on any other branch is
+  # refused before it starts, and no other job here can read them. No workflow asks for an OIDC token, so
+  # nothing signs keyless or reaches a public transparency log (supply-chain.sh no-oidc).
+  sign:
+    needs: image
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/heads/hotfix/'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: signing
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: v3.1.4
@@ -111,11 +138,11 @@ jobs:
       - run: dirname "${{ steps.syft.outputs.cmd }}" "${{ steps.grype.outputs.cmd }}" >> "$GITHUB_PATH"
       - name: Scan, attest, sign and tag
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-          TREE: ${{ steps.build-id.outputs.tree }}
-          SHA: ${{ steps.build-id.outputs.sha }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
-          tags=("tree-${TREE}" "sha-${SHA}")
+          tags=("tree-$(git rev-parse 'HEAD^{tree}')" "sha-$(git rev-parse HEAD)")
           [ "${GITHUB_REF}" != refs/heads/dev ] || tags+=(dev)
           ./.github/supply-chain.sh release "ghcr.io/quadrantcapital/venue-runner@${DIGEST}" "${tags[@]}"
 

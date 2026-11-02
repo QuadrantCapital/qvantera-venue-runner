@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # supply-chain.sh against shims of syft, grype, cosign and docker: what it writes, what it refuses,
-# and that an image gets its tags last. The real tools, and the keyless round trip, run in CI on a
-# push to dev (docs/engineering/supply-chain.md).
+# and that an image gets its tags last. The real tools, and the signing round trip against GHCR, run in
+# CI on a push to dev (docs/engineering/supply-chain.md).
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
-mkdir -p "${work}/bin"
+mkdir -p "${work}/bin" "${work}/gh"
+
+# The script finds the public key next to itself: a copy of it, with a stand-in key, is what runs.
+cp "${here}/supply-chain.sh" "${work}/gh/supply-chain.sh"
+echo "stand-in public key" >"${work}/gh/cosign.pub"
 
 # What each shim does is set by FAKE_* variables. `signed`, `attested` and `tagged` are files a shim
 # creates, so a test can tell whether a signature or a tag was written.
@@ -28,22 +32,32 @@ case "$*" in
   *.Provenance*) if [ "${FAKE_PROVENANCE:-1}" = 1 ]; then echo '{"SLSA":{"buildDefinition":{"buildType":"x"}}}'; else echo '{}'; fi ;;
 esac
 SHIM
+# `attest` and `sign` are refused unless they sign with the key from the environment and are given the
+# signing config `signing-config create` wrote — the config is what keeps them away from Rekor.
 cat >"${work}/bin/cosign" <<'SHIM'
 #!/usr/bin/env bash
 case "$1" in
-  attest) touch "${FAKE_DIR}/attested" ;;
-  sign) touch "${FAKE_DIR}/signed" ;;
+  signing-config)
+    [ "$2" = create ] && [ "$3" = --out ] || exit 1
+    echo '{"mediaType":"stand-in"}' >"$4" ;;
+  attest | sign)
+    printf '%s\n' "$*" >>"${FAKE_DIR}/sign-calls"
+    [[ " $* " == *" --key env://COSIGN_PRIVATE_KEY "* ]] && [ -n "${COSIGN_PRIVATE_KEY:-}" ] || exit 1
+    cfg="$(sed -n 's/.* --signing-config \([^ ]*\) .*/\1/p' <<<" $* ")"
+    [ -n "${cfg}" ] && [ -s "${cfg}" ] || exit 1
+    if [ "$1" = attest ]; then touch "${FAKE_DIR}/attested"; else touch "${FAKE_DIR}/signed"; fi ;;
   verify)
-    printf '%s\n' "$*" >"${FAKE_DIR}/verify-args"
+    printf '%s\n' "$*" >>"${FAKE_DIR}/verify-calls"
     [ "${FAKE_SIGNED:-1}" = 1 ] || exit 1 ;;
-  verify-attestation) [ "${FAKE_ATTESTED:-1}" = 1 ] || exit 1 ;;
+  verify-attestation)
+    printf '%s\n' "$*" >>"${FAKE_DIR}/verify-calls"
+    [ "${FAKE_ATTESTED:-1}" = 1 ] || exit 1 ;;
 esac
 SHIM
 chmod +x "${work}/bin/"*
 
 export PATH="${work}/bin:${PATH}" FAKE_DIR="${work}" RUNNER_TEMP="${work}"
-export GITHUB_REPOSITORY=QuadrantCapital/qvantera-control
-export GITHUB_WORKFLOW_REF=QuadrantCapital/qvantera-control/.github/workflows/ci.yml@refs/heads/dev
+export COSIGN_PRIVATE_KEY="stand-in private key" COSIGN_PASSWORD="stand-in password"
 zeros="$(printf '0%.0s' {1..64})"
 ref="ghcr.io/quadrantcapital/control-api@sha256:${zeros}"
 
@@ -51,12 +65,12 @@ failures=0
 code=0
 # run <VAR=value…> -- <args…>: supply-chain.sh's exit in $code, its output in $work/out; the markers are cleared first.
 run() {
-  rm -f "${work}/signed" "${work}/attested" "${work}/tagged" "${work}/created" "${work}/verify-args"
+  rm -f "${work}/signed" "${work}/attested" "${work}/tagged" "${work}/created" "${work}/sign-calls" "${work}/verify-calls"
   local envs=()
   while [ "$1" != -- ]; do envs+=("$1"); shift; done
   shift
   code=0
-  env ${envs[@]+"${envs[@]}"} "${here}/supply-chain.sh" "$@" >"${work}/out" 2>&1 || code=$?
+  env ${envs[@]+"${envs[@]}"} "${work}/gh/supply-chain.sh" "$@" >"${work}/out" 2>&1 || code=$?
 }
 check() { # check <name> <command…>
   local name="$1"
@@ -84,6 +98,31 @@ check "  gives the digest each tag" tagged_with tree-abc
 check "  and the next" tagged_with sha-def
 check "  and the last" tagged_with dev
 
+# Nothing may reach a public log. The shim refuses a signing call without the empty signing config; this
+# says there were two such calls (the attestation and the signature) and that none asks for a certificate,
+# a token or a log.
+signing_calls_are_offline() {
+  [ "$(grep -c "" "${work}/sign-calls")" = 2 ] &&
+    ! grep -qE -- '--(identity-token|fulcio-url|rekor-url|oidc|tlog-upload|insecure-skip-verify)' "${work}/sign-calls"
+}
+check "the attestation and the signature are made with the key and the empty signing config, and nothing else" signing_calls_are_offline
+
+# What release checked after signing, and what `promote` checks: the committed public key, no log.
+verified_by_the_committed_key() {
+  [ "$(grep -c "" "${work}/verify-calls")" = 2 ] &&
+    ! grep -qvE -- "--key ${work}/gh/cosign\.pub .*--insecure-ignore-tlog=true" "${work}/verify-calls" &&
+    ! grep -qE -- '--certificate' "${work}/verify-calls"
+}
+check "release verifies what it wrote against the committed public key, with no log" verified_by_the_committed_key
+
+run COSIGN_PRIVATE_KEY= -- release "${ref}" tree-abc
+check "release without the private key fails" failed
+check "  and writes no signature and no tag" wrote_nothing
+
+run COSIGN_PASSWORD= -- release "${ref}" tree-abc
+check "release without the key's password fails" failed
+check "  and writes no signature and no tag" wrote_nothing
+
 run FAKE_CRITICAL=1 -- release "${ref}" tree-abc
 check "a Critical with a fix fails the job" failed
 check "  and writes no signature and no tag" wrote_nothing
@@ -96,7 +135,11 @@ check "an image built without provenance is refused" failed
 check "  and gets no tag" not_tagged
 
 run FAKE_SIGNED=0 -- release "${ref}" tree-abc
-check "a signature that does not verify fails the job" failed
+check "a signature that does not verify against the public key fails the job" failed
+check "  and the image gets no tag" not_tagged
+
+run FAKE_ATTESTED=0 -- release "${ref}" tree-abc
+check "an attestation that does not verify fails the job" failed
 check "  and the image gets no tag" not_tagged
 
 run FAKE_MOVED_DIGEST="sha256:${zeros//0/1}" -- release "${ref}" tree-abc
@@ -107,6 +150,7 @@ check "release without a tag is refused" failed
 
 run -- verify "${ref}"
 check "a signed tree verifies" succeeded
+check "  by the committed public key, with no log" verified_by_the_committed_key
 
 run FAKE_SIGNED=0 -- verify "${ref}"
 check "an unsigned tree is refused" failed
@@ -120,18 +164,42 @@ check "a tree without provenance is refused" failed
 run -- verify ghcr.io/quadrantcapital/control-api:tree-abc
 check "a tag is refused: only a digest names what was signed" failed
 
-# The identity `verify` accepts: this repository's ci.yml, on dev or a hotfix branch — not a pull
-# request's merge ref, a feature branch, another workflow, or another repository.
+# The public key is part of the tree. Without it nothing can be verified, so nothing is promoted.
+mv "${work}/gh/cosign.pub" "${work}/gh/cosign.pub.away"
 run -- verify "${ref}"
-pattern="$(sed -n 's/.*--certificate-identity-regexp \([^ ]*\).*/\1/p' "${work}/verify-args")"
-accepts() { printf '%s\n' "https://github.com/$1" | grep -Eq "${pattern}"; }
-refuses() { ! accepts "$1"; }
-check "dev's workflow is accepted" accepts QuadrantCapital/qvantera-control/.github/workflows/ci.yml@refs/heads/dev
-check "a hotfix branch's workflow is accepted" accepts QuadrantCapital/qvantera-control/.github/workflows/ci.yml@refs/heads/hotfix/cut-the-lease
-check "a feature branch's is refused" refuses QuadrantCapital/qvantera-control/.github/workflows/ci.yml@refs/heads/feature/x
-check "a pull request's merge ref is refused" refuses QuadrantCapital/qvantera-control/.github/workflows/ci.yml@refs/pull/7/merge
-check "another workflow is refused" refuses QuadrantCapital/qvantera-control/.github/workflows/other.yml@refs/heads/dev
-check "another repository's is refused" refuses QuadrantCapital/qvantera-trading/.github/workflows/ci.yml@refs/heads/dev
+check "a tree is refused when the repository carries no public key" failed
+run -- release "${ref}" tree-abc
+check "  and nothing is tagged when the key to check against is missing" not_tagged
+mv "${work}/gh/cosign.pub.away" "${work}/gh/cosign.pub"
+
+# no-oidc: no workflow can get an OIDC token or run a keyless signing action.
+mkdir -p "${work}/wf-good" "${work}/wf-oidc" "${work}/wf-attest" "${work}/wf-gha"
+cat >"${work}/wf-good/ci.yml" <<'EOF'
+permissions:
+  contents: read
+  packages: write
+jobs:
+  sign:
+    environment: signing
+    steps:
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+EOF
+cp "${work}/wf-good/ci.yml" "${work}/wf-oidc/ci.yml"
+printf '    permissions:\n      id-token: write\n' >>"${work}/wf-oidc/ci.yml"
+cp "${work}/wf-good/ci.yml" "${work}/wf-attest/ci.yml"
+printf '      - uses: actions/attest-build-provenance@v2\n' >>"${work}/wf-attest/ci.yml"
+cp "${work}/wf-good/ci.yml" "${work}/wf-gha/ci.yml"
+printf '      - uses: sigstore/gh-action-sigstore-python@v3\n' >>"${work}/wf-gha/ci.yml"
+run -- no-oidc "${work}/wf-good"
+check "workflows that ask for no OIDC token pass" succeeded
+run -- no-oidc "${work}/wf-oidc"
+check "a workflow that asks for an OIDC token is refused" failed
+run -- no-oidc "${work}/wf-attest"
+check "a workflow that runs actions/attest is refused" failed
+run -- no-oidc "${work}/wf-gha"
+check "a workflow that runs a keyless signing action is refused" failed
+run -- no-oidc
+check "no-oidc with no directory is refused" failed
 
 # pins: a Dockerfile's bases and a Compose file's third-party images are named by digest.
 pinned="sha256:${zeros//0/a}"

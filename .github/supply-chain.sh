@@ -6,27 +6,33 @@
 #   release <image@digest> <tag>…    scan; attach the SBOM as a signed attestation; sign the image; verify
 #                                    what was just written; and only then give the digest its tags. A
 #                                    failed step leaves the digest without a tag that anything resolves.
-#   verify  <image@digest>           What `promote` demands of a tree dev built: a signature by this
-#                                    repository's ci.yml on dev or a hotfix branch, the SBOM attestation,
-#                                    and the SLSA provenance BuildKit put in the index.
+#   verify  <image@digest>           What `promote` demands of a tree dev built: a signature and the SBOM
+#                                    attestation by this repository's key (.github/cosign.pub), and the
+#                                    SLSA provenance BuildKit put in the index.
 #   pins    <file>…                  Every base image of a Dockerfile and every third-party image of a
 #                                    Compose file is named by digest.
+#   no-oidc <dir>…                   No workflow in the directories asks for an OIDC token or runs a
+#                                    keyless signing action: nothing could sign without the key.
 #
-# Keyless: the signature is a Fulcio certificate for the workflow's GitHub identity, logged in Rekor.
-# It covers the index digest, so it covers the provenance inside the index; `promote` copies the
-# manifest byte for byte and the digest, and with it the signature, is unchanged.
+# Signed with this repository's own cosign key (owner, 2026-11-02): the private key and its password are
+# secrets of the `signing` environment, open to dev and hotfix/* only, and only the job that calls
+# `release` reads them. The public key is cosign.pub next to this script. Nothing reaches a public
+# transparency log: cosign is given an empty signing config (no Fulcio, Rekor or timestamp service), and
+# without one, `--key` would fetch Sigstore's public-good config and log the signature in Rekor.
+# The signature covers the index digest, so it covers the provenance inside the index; `promote` copies
+# the manifest byte for byte and the digest, and with it the signature, is unchanged.
 # Needs syft, grype, cosign and docker on PATH, and `docker login` to the registry.
 set -euo pipefail
 
 # The one severity that fails the gate. High is printed but does not fail: the runtime images still
 # carry the base image's npm, whose Highs are not fixed by ignoring npm's findings (ClickUp Backlog).
 GATE=critical
-ISSUER=https://token.actions.githubusercontent.com
+PUBKEY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign.pub"
 
 die() { echo "::error::supply-chain.sh: $*" >&2; exit 1; }
 
 mode="${1:-}"
-case "${mode}" in scan | release | verify | pins) ;; *) die "usage: supply-chain.sh scan|verify <image@sha256:digest> | release <image@sha256:digest> <tag>… | pins <file>…" ;; esac
+case "${mode}" in scan | release | verify | pins | no-oidc) ;; *) die "usage: supply-chain.sh scan|verify <image@sha256:digest> | release <image@sha256:digest> <tag>… | pins <file>… | no-oidc <dir>…" ;; esac
 
 # images_of <file>: the images a Dockerfile builds on, or a Compose file runs. A reference with `${…}`
 # is a first-party tag `promote` writes; a stage alias and `scratch` name no registry image.
@@ -57,13 +63,26 @@ if [ "${mode}" = pins ]; then
   exit "${status}"
 fi
 
+# no-oidc: a workflow that can get an OIDC token can sign keyless, and keyless signing logs in a public
+# transparency log. The bracketed letters keep this file out of its own search.
+if [ "${mode}" = no-oidc ]; then
+  shift
+  [ $# -gt 0 ] || die "no-oidc needs the workflow directories to check"
+  if grep -rnE --include='*.yml' --include='*.yaml' 'id-toke[n]|attest-build-provenanc[e]|gh-action-sigstor[e]' "$@"; then
+    die "a workflow asks for an OIDC token or runs a keyless signing action (the lines above): signing is by the repository's key only"
+  fi
+  exit 0
+fi
+
 ref="${2:-}"
 [[ "${ref}" == *@sha256:* ]] || die "${ref:-an image} is not named by digest: a tag can move between the build and the signature"
 digest="${ref#*@}"
 repo="${ref%@*}"
 
-sbom="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/sbom-$$.cdx.json"
-trap 'rm -f "${sbom}"' EXIT
+tmp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+sbom="${tmp}/sbom-$$.cdx.json"
+nolog="${tmp}/signing-config-$$.json"
+trap 'rm -f "${sbom}" "${nolog}"' EXIT
 
 scan() {
   syft "registry:${ref}" --quiet -o "cyclonedx-json=${sbom}"
@@ -76,24 +95,31 @@ has_provenance() {
     die "${ref} carries no SLSA provenance: it was not built with provenance: mode=max"
 }
 
-# check_signed <certificate identity flag…>: the signature and the SBOM attestation, by that identity.
+# check_signed: the signature and the SBOM attestation, by the key committed next to this script. There
+# is no log entry to look up, so the log check is off.
 check_signed() {
-  cosign verify --certificate-oidc-issuer "${ISSUER}" "$@" "${ref}" >/dev/null ||
-    die "${ref} has no signature from the expected workflow"
-  cosign verify-attestation --type cyclonedx --certificate-oidc-issuer "${ISSUER}" "$@" "${ref}" >/dev/null ||
-    die "${ref} has no CycloneDX attestation from the expected workflow"
+  [ -s "${PUBKEY}" ] || die "no public key at ${PUBKEY}"
+  cosign verify --key "${PUBKEY}" --insecure-ignore-tlog=true "${ref}" >/dev/null ||
+    die "${ref} has no signature by this repository's key"
+  cosign verify-attestation --key "${PUBKEY}" --insecure-ignore-tlog=true --type cyclonedx "${ref}" >/dev/null ||
+    die "${ref} has no CycloneDX attestation by this repository's key"
 }
 
 case "${mode}" in
   scan) scan ;;
   release)
     [ $# -ge 3 ] || die "release needs the tags to give ${ref}"
+    [ -n "${COSIGN_PRIVATE_KEY:-}" ] || die "COSIGN_PRIVATE_KEY is unset: release runs in the job that holds the signing environment"
+    [ -n "${COSIGN_PASSWORD:-}" ] || die "COSIGN_PASSWORD is unset: the key is encrypted"
     scan
-    cosign attest --yes --type cyclonedx --predicate "${sbom}" "${ref}"
-    cosign sign --yes "${ref}"
+    cosign signing-config create --out "${nolog}"
+    sign_with=(--yes --key env://COSIGN_PRIVATE_KEY --signing-config "${nolog}")
+    cosign attest "${sign_with[@]}" --type cyclonedx --predicate "${sbom}" "${ref}"
+    cosign sign "${sign_with[@]}" "${ref}"
     has_provenance
-    # Exactly this job: a signature by any other workflow would pass the pattern `verify` uses.
-    check_signed --certificate-identity "https://github.com/${GITHUB_WORKFLOW_REF:?GITHUB_WORKFLOW_REF unset: release runs in CI}"
+    # Against the committed public key: a secret from another repository, or a rotation that did not
+    # commit the new key, fails here and nothing is tagged.
+    check_signed
     # The index is copied as it is, so the new tag is the digest that was signed (an index source keeps
     # its digest; `imagetools create` re-wraps only a single manifest). Anything else is refused.
     for tag in "${@:3}"; do
@@ -105,7 +131,7 @@ case "${mode}" in
     ;;
   verify)
     has_provenance
-    check_signed --certificate-identity-regexp "^https://github\.com/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY unset}/\.github/workflows/ci\.yml@refs/heads/(dev|hotfix/.+)\$"
+    check_signed
     echo "verified: ${ref}"
     ;;
 esac
