@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1
-FROM node:24-bookworm AS builder
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM node:24-bookworm@sha256:e7add2a490bb17d97b485b8641bd88455fff7839ade0f5eba493c3508124d413 AS builder
 WORKDIR /app
 RUN corepack enable
 COPY package.json yarn.lock .yarnrc.yml .npmrc ./
@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/root/.yarn/berry/cache \
   && rm -rf dist/*.test.* \
   && yarn workspaces focus --production
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
 WORKDIR /app
 COPY --from=builder --chown=node:node /app/package.json ./
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
