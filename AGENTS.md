@@ -51,6 +51,14 @@ renewal against a real nats-server with a callout; it fails with the renewal swi
 Every subscription is in one queue group, so while two connections overlap — or two processes run
 with one token — each message reaches one of them, never both.
 
+## No slop
+
+The workspace rule applies: [`../AGENTS.md` § No slop](../AGENTS.md#no-slop). In short: no backlog key,
+decision id or ClickUp id in code, comments, configuration, test names or this repository's documents (T1;
+`.github/check-slop.sh` refuses it in CI); no comment that restates the code or outruns its reason (T2, T3);
+each fact once (T4); no check, catch, fallback, wrapper or repeated validation without a failure you can name
+(C1–C5).
+
 ## Commands
 
 `yarn build` · `yarn test` · `yarn typecheck` · `yarn lint` · `yarn audit:deps` · `yarn dev`
