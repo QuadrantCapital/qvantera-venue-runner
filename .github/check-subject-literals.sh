@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # M-115: every NATS subject comes from the table generated from
-# qvantera-contracts/subjects/registry.yaml and shipped in @quadrantcapital/proto.
+# qvantera-contracts/catalog/subjects.yaml and shipped in @quadrantcapital/proto.
 #
 # The rule is "no `qvantera.` subject written by hand", not "no *new* subject written by hand".
 # The first version of this check only refused `qvantera.v1.`, and it missed four handlers that
