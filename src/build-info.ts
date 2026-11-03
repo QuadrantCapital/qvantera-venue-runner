@@ -22,5 +22,3 @@ export function loadBuildInfo(file = '/build-info.json'): BuildInfo {
   }
   return UNKNOWN
 }
-
-// TRADE-03: throwaway, for the red proof of the check
