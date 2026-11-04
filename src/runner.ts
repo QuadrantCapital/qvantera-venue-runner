@@ -6,7 +6,7 @@ import type { WireMessageByType } from '@quadrantcapital/wire'
 import { ordered, type RunnerBus } from './bus.js'
 import { relayHttp } from './http-relay.js'
 import { applySelection, resolveLanes, type Lane } from './lanes.js'
-import { createSocketRelay, type SocketRelay } from './socket-relay.js'
+import { createSocketRelay } from './socket-relay.js'
 
 export const HEARTBEAT_MS = 10_000
 /** Each lane's public address is looked up at start and this often after — never per venue request. */
@@ -65,13 +65,10 @@ export async function startRunner(deps: {
   log: Log
   /** The platform revoked this runner: it must stop. */
   onRevoked: () => void
-  relay?: SocketRelay
-  now?: () => number
 }) {
   const { bus, log } = deps
-  const now = deps.now ?? Date.now
   const instanceId = randomUUID()
-  const startedAt = now()
+  const startedAt = Date.now()
   let inflight = 0
   let egress: string[] | null = null
   let lanes: Lane[] = await resolveLanes(deps.addresses, deps.lookup, egress)
@@ -138,7 +135,7 @@ export async function startRunner(deps: {
           if (!stopped) scheduleRollover(ttlSec, HELLO_TIMEOUT_MS)
         })
     }, inMs)
-    rolloverTimer.unref?.()
+    rolloverTimer.unref()
   }
 
   // Who it is. A registered runner learns its subjects' scope from the platform and cannot serve
@@ -162,17 +159,15 @@ export async function startRunner(deps: {
   }
   const { scope, runner } = identity as Identity
 
-  const relay =
-    deps.relay ??
-    createSocketRelay({
-      log,
-      events: {
-        frame: (socketId, data, binary) =>
-          bus.publish(subjects.runnerWsFrame(scope, runner, socketId), 'RunnerWsFrameEvent', { data, binary }),
-        closed: (socketId, code, reason) =>
-          bus.publish(subjects.runnerWsClosed(scope, runner, socketId), 'RunnerWsClosedEvent', { code, reason }),
-      },
-    })
+  const relay = createSocketRelay({
+    log,
+    events: {
+      frame: (socketId, data, binary) =>
+        bus.publish(subjects.runnerWsFrame(scope, runner, socketId), 'RunnerWsFrameEvent', { data, binary }),
+      closed: (socketId, code, reason) =>
+        bus.publish(subjects.runnerWsClosed(scope, runner, socketId), 'RunnerWsClosedEvent', { code, reason }),
+    },
+  })
 
   /**
    * The lane a request names, if the runner has it active. `''` is the host's default route; a
@@ -261,7 +256,7 @@ export async function startRunner(deps: {
       scope,
       instanceId,
       version: deps.version,
-      uptimeSec: BigInt(Math.floor((now() - startedAt) / 1000)),
+      uptimeSec: BigInt(Math.floor((Date.now() - startedAt) / 1000)),
       egressIp: egressIp(),
       openSockets: ids.length,
       inflightRequests: inflight,
@@ -286,9 +281,9 @@ export async function startRunner(deps: {
   log.info({ scope, runner, runnerId: identity.runnerId, lanes, instanceId }, 'runner lanes')
   heartbeat()
   const heartbeats = setInterval(() => void round(), deps.heartbeatMs ?? HEARTBEAT_MS)
-  heartbeats.unref?.()
+  heartbeats.unref()
   const lookups = deps.lookup ? setInterval(() => void lookupLanes(), EGRESS_LOOKUP_MS) : undefined
-  lookups?.unref?.()
+  lookups?.unref()
 
   return {
     identity: identity as Identity,
