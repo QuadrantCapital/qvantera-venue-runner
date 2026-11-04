@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Promote the image dev built for this tree. main never builds: it finds
-# `<package>:tree-<tree>` and gives that exact manifest the tags `:latest` — what the pilot
+# `<package>:tree-<tree>` and gives that exact manifest the tags `:latest` — what production
 # pulls — and `:sha-<sha>`, this commit. The manifest is copied byte for byte through the
 # registry API, so the digest is the one dev pushed and the promotion's e2e ran.
 # `docker buildx imagetools create` would wrap a single manifest in a new index, with a new

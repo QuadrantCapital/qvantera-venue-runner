@@ -11,7 +11,7 @@ const iface = (address: string, family: 'IPv4' | 'IPv6' = 'IPv4') => ({
   ...(family === 'IPv6' ? { scopeid: 0 } : {}),
 })
 
-// A host like the pilot's: two public addresses, loopback, the Docker bridge, a link-local IPv6.
+// A typical host: two public addresses, loopback, the Docker bridge, a link-local IPv6.
 const host = {
   lo: [iface('127.0.0.1'), iface('::1', 'IPv6')],
   eth0: [iface('15.235.228.57'), iface('51.79.202.101'), iface('fe80::1%eth0', 'IPv6'), iface('2001:41d0::1', 'IPv6')],

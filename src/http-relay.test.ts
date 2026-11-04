@@ -116,7 +116,7 @@ describe('relayHttp', () => {
     })
   })
 
-  // Without keep-alive every request paid a fresh TCP and TLS handshake: ~720 ms on the pilot.
+  // Without keep-alive every request paid a fresh TCP and TLS handshake: ~720 ms against a ~150 ms round trip.
   it('reuses one connection for consecutive requests, and says so on each answer', async () => {
     const client = createVenueHttpClient()
     const reused: Array<boolean | undefined> = []

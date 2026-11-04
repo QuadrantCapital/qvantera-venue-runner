@@ -9,7 +9,7 @@ type RunnerHttpResponse = WirePayloadByType['RunnerHttpResponse']
 
 /**
  * Connection reuse for every venue request. Built without `keepAlive`, every request paid a fresh
- * TCP and TLS handshake: ~720 ms a request against a ~150 ms round trip on the pilot.
+ * TCP and TLS handshake: ~720 ms a request against a ~150 ms round trip to the platform.
  *
  * `timeout` closes a pooled socket after 5 s idle, as Node's global agent does: a venue's load
  * balancer that closes idle connections first would otherwise race a request onto a dead socket,

@@ -54,7 +54,7 @@ jobs:
 
   # The one build of a tree. `:tree-<tree>` is what a promotion looks up, `:sha-<sha>` the
   # revision, `:dev` what a pull request into dev runs against. Never `:latest`: only `promote`
-  # on main moves that, and it is what the pilot pulls.
+  # on main moves that, and it is what production pulls.
   image:
     needs: test
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/heads/hotfix/'))
@@ -280,7 +280,7 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
       # The system this pull request joins. Into dev: deploy@dev, and `:dev` for every image it does
       # not override. Into main — a promotion or a hotfix — deploy@main and `:latest`, which is what
-      # the pilot runs.
+      # production runs.
       DEPLOY_REF: ${{ github.base_ref == 'main' && 'main' || 'dev' }}
       E2E_IMAGE_TAG: ${{ github.base_ref == 'main' && 'latest' || 'dev' }}
       # The runner this pull request built, against every other image of the system it joins: the

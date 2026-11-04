@@ -1,7 +1,7 @@
 # Qvantera venue runner
 
-The venue runner sends your trading platform's venue requests from **your own host and your own IP
-addresses**, so the exchange sees — and whitelists — addresses you control.
+The venue runner sends your Qvantera trading platform's venue requests (requests to an exchange) from
+**your own host and your own IP addresses**, so the exchange sees — and whitelists — addresses you control.
 
 - **Your API secrets never reach it.** The platform signs every request; the runner receives a
   request that is already signed (URL, headers with your API key, body) and sends it, once. It cannot
