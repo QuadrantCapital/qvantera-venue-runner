@@ -25,7 +25,7 @@ does not control. So:
 
 - **It never holds a venue secret.** What reaches it is a URL, headers carrying the API key, a body
   spot-gateway signed, and a socket's frames. Signing, adapters, rate limits and the breaker stay in
-  spot-gateway — invariant 3 in [`../AGENTS.md`](../AGENTS.md).
+  spot-gateway — invariant 3 in `../AGENTS.md`.
 - **It depends on the contract bindings only** — `@quadrantcapital/proto` and the frame codec
   `@quadrantcapital/wire`. Never on `db`, `messaging`, `observability` or anything from
   qvantera-trading or qvantera-venue: it is installed by people who are not this team, and the

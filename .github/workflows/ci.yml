@@ -304,11 +304,11 @@ jobs:
           GH_TOKEN: ${{ secrets.E2E_CI_TOKEN }}
         run: |
           if [ -z "${E2E_CI_TOKEN}" ]; then
-            echo "::error::E2E_CI_TOKEN is not visible to this repository. Fine-grained PAT, Contents:Read on qvantera-deploy. An organisation administrator adds it to this repository's secrets."
+            echo "::error::E2E_CI_TOKEN is not visible to this repository. Fine-grained PAT, Contents:Read on qvantera-deploy. An organisation administrator grants this repository access to the organisation secret."
             exit 1
           fi
           if [ -z "${GHCR_READ_TOKEN}" ]; then
-            echo "::error::GHCR_READ_TOKEN is not visible to this repository. Classic PAT, read:packages only. An organisation administrator adds it to this repository's secrets."
+            echo "::error::GHCR_READ_TOKEN is not visible to this repository. Classic PAT, read:packages only. An organisation administrator grants this repository access to the organisation secret."
             exit 1
           fi
           # An expired or under-scoped token makes the checkout below fail with
