@@ -6,13 +6,13 @@ import { readiness } from './status.js'
 const log = { info: () => undefined, warn: () => undefined, error: () => undefined }
 
 /**
- * `/ready`'s `nats` against a real server that goes away (M-805a): the PING fails, fast, while the
+ * `/ready`'s `nats` against a real server that goes away: the PING fails, fast, while the
  * client is redialling — not after the readiness deadline as an unanswered one would.
  */
 const server: NatsServer | null = await startNats('authorization { users = [ { user: rn, password: rp } ] }', { user: 'rn', pass: 'rp' })
 const describeNats = server ? describe : describe.skip
 
-describeNats('readiness over a real NATS connection (M-805a)', () => {
+describeNats('readiness over a real NATS connection', () => {
   let bus: RunnerBus
 
   afterAll(async () => {

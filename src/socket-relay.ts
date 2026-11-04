@@ -17,7 +17,7 @@ function bytes(data: WebSocket.RawData): Uint8Array {
 }
 
 /**
- * The venue sockets this runner holds, by the id spot-gateway gave each (M-366). The runner only
+ * The venue sockets this runner holds, by the id spot-gateway gave each. The runner only
  * moves bytes: a frame from the venue is published as it arrived, a frame from spot-gateway is
  * written as it arrived — the venue's protocol (logins, subscriptions, pings) is spot-gateway's.
  *
@@ -32,7 +32,7 @@ export function createSocketRelay(opts: {
   connect?: (url: string, lane: string) => WebSocket
 }) {
   const sockets = new Map<string, WebSocket>()
-  // A socket leaves from its lane's address (M-367), so a credential's private stream is seen by the
+  // A socket leaves from its lane's address, so a credential's private stream is seen by the
   // venue from the one address spot-gateway chose for it.
   const connect = opts.connect ?? ((url: string, lane: string) => new WebSocket(url, laneSocketOptions(lane)))
 

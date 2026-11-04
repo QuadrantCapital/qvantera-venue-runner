@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Promote the image dev built for this tree (M-351). main never builds: it finds
+# Promote the image dev built for this tree. main never builds: it finds
 # `<package>:tree-<tree>` and gives that exact manifest the tags `:latest` — what the pilot
 # pulls — and `:sha-<sha>`, this commit. The manifest is copied byte for byte through the
 # registry API, so the digest is the one dev pushed and the promotion's e2e ran.
 # `docker buildx imagetools create` would wrap a single manifest in a new index, with a new
 # digest — measured against a local registry, which is why this is not a one-liner.
-# DELIVERY-01: before anything is written, the manifest in hand is verified by its digest
+# Before anything is written, the manifest in hand is verified by its digest
 # (supply-chain.sh verify): a tree that dev did not scan and sign is not promoted, and a rebuild
 # that moves `tree-<tree>` meanwhile cannot slip in.
 #

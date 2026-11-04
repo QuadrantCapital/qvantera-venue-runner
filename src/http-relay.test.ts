@@ -5,7 +5,7 @@ import { createVenueHttpClient, relayHttp } from './http-relay.js'
 
 const enc = new TextEncoder()
 
-describe('relayHttp (M-366)', () => {
+describe('relayHttp', () => {
   let server: http.Server
   let base: string
   let connections: number
@@ -98,7 +98,7 @@ describe('relayHttp (M-366)', () => {
     const closed = base
     server.closeAllConnections()
     await new Promise((resolve) => server.close(resolve))
-    // Refused before a connection existed: nothing reached the venue (M-367), so spot-gateway may
+    // Refused before a connection existed: nothing reached the venue, so spot-gateway may
     // call it unsent rather than ambiguous.
     expect(await relayHttp(client, request(`${closed}/`))).toMatchObject({ error: 'lane_failed' })
     server = http.createServer()
@@ -116,8 +116,7 @@ describe('relayHttp (M-366)', () => {
     })
   })
 
-  // M-320, moved with the client: the pilot's ~720 ms a request was a fresh TCP and TLS handshake
-  // each time.
+  // Without keep-alive every request paid a fresh TCP and TLS handshake: ~720 ms on the pilot.
   it('reuses one connection for consecutive requests, and says so on each answer', async () => {
     const client = createVenueHttpClient()
     const reused: Array<boolean | undefined> = []

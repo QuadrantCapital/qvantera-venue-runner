@@ -18,7 +18,7 @@ const host = {
   docker0: [iface('172.17.0.1')],
 } as never
 
-describe('egress lanes (M-367)', () => {
+describe('egress lanes', () => {
   it('takes every global address with auto, and nothing private, local or link-local', () => {
     expect(laneAddresses('auto', host)).toEqual(['15.235.228.57', '51.79.202.101', '2001:41d0::1'])
   })

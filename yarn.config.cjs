@@ -1,4 +1,4 @@
-// `yarn constraints`, run in CI (M-701c, DELIVERY-01).
+// `yarn constraints`, run in CI.
 //
 // Every dependency resolves to a version: a semver version or range, or one of this repository's own
 // workspaces. Never `latest`, `*`, a tag, a git ref, a URL or a path — the lockfile would be the only

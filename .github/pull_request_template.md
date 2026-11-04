@@ -1,6 +1,6 @@
 ## What changed
 
-<!-- The change and why; the backlog key it implements. -->
+<!-- The change and why. -->
 
 ## Verified
 

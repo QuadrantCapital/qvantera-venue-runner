@@ -25,7 +25,7 @@ COPY --from=builder --chown=node:node /app/dist ./dist
 # /app/install/compose.yaml` gives the compose file of exactly this release (qvantera-deploy's e2e
 # installs its second runner that way).
 COPY compose.yaml .env.example install.sh /app/install/
-# Build identity, last so a new commit rebuilds only these layers (M-500). CI passes the three args.
+# Build identity, last so a new commit rebuilds only these layers. CI passes the three args.
 # The labels let a deploy read the commit and tree from the digest without running it; the file is
 # what the runner reports on /health, /metrics and its startup line — baked in, so no configuration
 # can claim a build the image is not.

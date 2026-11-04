@@ -1,9 +1,9 @@
 name: prune-pr-images
 
-# The pre-merge e2e (M-411) pushes a `pr-<n>` tag per image per pull request and nothing
+# The pre-merge e2e pushes a `pr-<n>` tag per image per pull request and nothing
 # deletes it, so GHCR would grow three image versions per pull request forever. A pull request
 # older than a week is either merged or abandoned; either way its images have done their job.
-# DELIVERY-01: the same for `build-<run>-<attempt>`, the tag an image has until supply-chain.sh has
+# The same for `build-<run>-<attempt>`, the tag an image has until supply-chain.sh has
 # scanned, signed and tagged it. A version that still has only that tag failed its gate.
 
 on:

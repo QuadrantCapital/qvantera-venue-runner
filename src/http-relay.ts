@@ -8,9 +8,8 @@ type RunnerHttpRequest = WireMessageByType['RunnerHttpRequest']
 type RunnerHttpResponse = WirePayloadByType['RunnerHttpResponse']
 
 /**
- * Connection reuse for every venue request (M-320, moved here from spot-gateway by M-366). Built
- * without `keepAlive`, every request paid a fresh TCP and TLS handshake: ~720 ms a request against a
- * ~150 ms round trip on the pilot.
+ * Connection reuse for every venue request. Built without `keepAlive`, every request paid a fresh
+ * TCP and TLS handshake: ~720 ms a request against a ~150 ms round trip on the pilot.
  *
  * `timeout` closes a pooled socket after 5 s idle, as Node's global agent does: a venue's load
  * balancer that closes idle connections first would otherwise race a request onto a dead socket,
@@ -27,7 +26,7 @@ const AGENT_OPTIONS = {
 } as const
 
 /**
- * The client one lane's requests go out on (M-367): its own keep-alive pool, every connection bound
+ * The client one lane's requests go out on: its own keep-alive pool, every connection bound
  * to the lane's address. `''` is the host's default route. A pooled connection never changes lanes,
  * so the venue sees each lane's requests from that lane's address and nowhere else.
  */
@@ -61,9 +60,9 @@ function reusedSocket(request: unknown): boolean | undefined {
 const NEVER_CONNECTED = new Set(['ENOTFOUND', 'EAI_AGAIN', 'EADDRNOTAVAIL', 'EAFNOSUPPORT', 'ENETUNREACH', 'EHOSTUNREACH', 'ECONNREFUSED'])
 
 /**
- * `lane_failed` only for a fresh connection that never opened (M-367): spot-gateway refuses such a
+ * `lane_failed` only for a fresh connection that never opened: spot-gateway refuses such a
  * request as unsent and stops using the lane. Anything on a pooled connection, or after the
- * connection opened, may have reached the venue and is `timeout` or `network` as before (§ D-9).
+ * connection opened, may have reached the venue and is `timeout` or `network` as before.
  */
 function failureKind(err: unknown, reused: boolean | undefined): 'timeout' | 'network' | 'lane_failed' {
   const code = isAxiosError(err) ? err.code : undefined
@@ -85,7 +84,7 @@ function responseHeaders(raw: Record<string, unknown>): Array<{ name: string; va
 
 /**
  * Send one signed request, exactly once, and say what happened. Never retried here: a request
- * that went out and was not answered is spot-gateway's to call ambiguous (§ D-9).
+ * that went out and was not answered is spot-gateway's to call ambiguous.
  */
 export async function relayHttp(client: AxiosInstance, req: RunnerHttpRequest): Promise<RunnerHttpResponse> {
   const started = performance.now()

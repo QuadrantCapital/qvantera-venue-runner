@@ -3,13 +3,13 @@ name: ci
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  # dev builds each tree's image once; main promotes it and builds nothing (M-351, as every
-  # qvantera repository).
+  # dev builds each tree's image once; main promotes it and builds nothing, as every
+  # qvantera repository.
   push:
     branches: [dev, main, 'hotfix/**']
   workflow_dispatch:
 
-# A pull request's runs are grouped by its number, never with a branch's pushes (M-341d).
+# A pull request's runs are grouped by its number, never with a branch's pushes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -18,9 +18,9 @@ permissions:
   contents: read
   packages: read
 
-# SEC-14 (owner, 2026-10-21): this repository is public, so every job runs on GitHub-hosted
-# runners. The organisation's self-hosted group refuses public repositories (D-24): a fork's pull
-# request must never run its code on the machines next to production.
+# This repository is public, so every job runs on GitHub-hosted runners. The organisation's
+# self-hosted group refuses public repositories: a fork's pull request must never run its code on the
+# machines next to production.
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -37,12 +37,12 @@ jobs:
       - run: yarn install --immutable
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # M-701c: every dependency a version or a workspace, ours from another repository exact.
+      # Every dependency a version or a workspace, ours from another repository exact.
       - run: yarn constraints
-      # DELIVERY-01: no base image by tag; the supply-chain and promote scripts against shims.
+      # No base image by tag; the supply-chain and promote scripts against shims.
       - run: ./.github/supply-chain.sh pins Dockerfile
-      # DELIVERY-01: no workflow asks for an OIDC token or runs a keyless signing action; images are
-      # signed with this repository's key only (owner, 2026-11-02).
+      # No workflow asks for an OIDC token or runs a keyless signing action; images are signed with
+      # this repository's key only.
       - run: ./.github/supply-chain.sh no-oidc .github/workflows
       - run: bash .github/supply-chain.test.sh
       - run: bash .github/promote-image.test.sh
@@ -52,7 +52,7 @@ jobs:
       - run: yarn test
       - run: yarn build
 
-  # M-351: the one build of a tree. `:tree-<tree>` is what a promotion looks up, `:sha-<sha>` the
+  # The one build of a tree. `:tree-<tree>` is what a promotion looks up, `:sha-<sha>` the
   # revision, `:dev` what a pull request into dev runs against. Never `:latest`: only `promote`
   # on main moves that, and it is what the pilot pulls.
   image:
@@ -67,7 +67,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # M-500: the identity the image records. On a pull request HEAD is the merge commit
+      # The identity the image records. On a pull request HEAD is the merge commit
       # actions/checkout made, which is exactly the tree the image is built from.
       - name: Build identity
         id: build-id
@@ -83,9 +83,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-      # SEC-14: a GitHub-hosted runner starts with an empty BuildKit cache. ENG-10: the layers are
-      # kept in the Actions cache instead (`type=gha`), so an unchanged layer (the base image, the
-      # installed dependencies) is not built again; a pull request reads dev's cache.
+      # A GitHub-hosted runner starts with an empty BuildKit cache. The layers are kept in the Actions
+      # cache instead (`type=gha`), so an unchanged layer (the base image, the installed dependencies)
+      # is not built again; a pull request reads dev's cache.
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
@@ -102,7 +102,7 @@ jobs:
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           tags: ghcr.io/quadrantcapital/venue-runner:build-${{ github.run_id }}-${{ github.run_attempt }}
 
-  # DELIVERY-01: the one job that holds the signing key. The build above pushed `:build-*` and holds no
+  # The one job that holds the signing key. The build above pushed `:build-*` and holds no
   # key; this job scans that digest, attaches the SBOM, signs with this repository's own key, checks the
   # signature against .github/cosign.pub, and only then gives the digest `:tree-*`, `:sha-*` and, on dev,
   # `:dev` — so no tag anything resolves points at an unsigned image. A failed gate leaves `:build-*` and
@@ -146,7 +146,7 @@ jobs:
           [ "${GITHUB_REF}" != refs/heads/dev ] || tags+=(dev)
           ./.github/supply-chain.sh release "ghcr.io/quadrantcapital/venue-runner@${DIGEST}" "${tags[@]}"
 
-  # M-351: main never builds. The image dev built for this exact tree becomes `:latest` and
+  # main never builds. The image dev built for this exact tree becomes `:latest` and
   # `:sha-<this commit>`, byte for byte; a tree with no dev build fails "no artifact for this tree".
   promote:
     needs: test
@@ -172,9 +172,8 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./.github/promote-image.sh venue-runner "$(git rev-parse 'HEAD^{tree}')" "$(git rev-parse HEAD)"
 
-  # M-411, as in every qvantera repository: build this pull request's image and run the full e2e
-  # against a stack where it is the only thing that is not the system it joins — `:dev` for a pull
-  # request into dev, `:latest` for one into main.
+  # Build this pull request's image and run the full e2e against a stack where it is the only thing
+  # that is not the system it joins — `:dev` for a pull request into dev, `:latest` for one into main.
   image-pr:
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ubuntu-24.04
@@ -183,9 +182,9 @@ jobs:
       contents: read
       packages: write
     env:
-      # M-351: a pull request into main from dev (a promotion) or from hotfix/* carries a tree that
-      # branch's push has already built. It is tested as that artifact, never rebuilt, so the
-      # image main will promote is the image this e2e runs.
+      # A pull request into main from dev (a promotion) or from hotfix/* carries a tree that branch's
+      # push has already built. It is tested as that artifact, never rebuilt, so the image main will
+      # promote is the image this e2e runs.
       PROMOTION: ${{ github.base_ref == 'main' && (github.head_ref == 'dev' || startsWith(github.head_ref, 'hotfix/')) }}
     # Every leg checks out the same commit, so whichever leg sets them, they are the same.
     outputs:
@@ -193,7 +192,7 @@ jobs:
       tag: ${{ steps.build-id.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # M-500: the identity the image records. On a pull request HEAD is the merge commit
+      # The identity the image records. On a pull request HEAD is the merge commit
       # actions/checkout made, which is exactly the tree the image is built from.
       - name: Build identity
         id: build-id
@@ -238,8 +237,8 @@ jobs:
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           tags: ghcr.io/quadrantcapital/venue-runner:${{ steps.build-id.outputs.tag }}
-      # DELIVERY-01: the gate runs here too, so a fixed Critical fails the pull request, not dev. Not
-      # signed: a pull request's image is never promotable.
+      # The gate runs here too, so a fixed Critical fails the pull request, not dev. Not signed: a
+      # pull request's image is never promotable.
       - if: env.PROMOTION != 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
@@ -259,7 +258,7 @@ jobs:
     # image-pr no longer waits for test: the build runners take it while the tests run, and a
     # failed test still stops the e2e here.
     needs: [test, image-pr]
-    # DELIVERY-07: `e2e-pr` is a required check on dev, and GitHub counts a skipped check as passed.
+    # `e2e-pr` is a required check on dev, and GitHub counts a skipped check as passed.
     # A run that will not test this head — a draft, or a test or image-pr that did not pass — so
     # carries another name, and the required `e2e-pr` stays missing until a run has really tested it.
     # Otherwise a draft's skipped e2e-pr lets the pull request merge before its ready run reaches the
@@ -271,31 +270,31 @@ jobs:
     permissions:
       contents: read
       packages: read
-      # M-351d: the e2e green record is a commit status `e2e/green` on this pull request's head.
+      # The e2e green record is a commit status `e2e/green` on this pull request's head.
       statuses: write
     env:
       SDK_GITHUB_TOKEN: ${{ secrets.SDK_GITHUB_TOKEN }}
-      # SEC-14: the deploy e2e image and container install @quadrantcapital/messaging, contracts and
-      # db, which this public repository's GITHUB_TOKEN is not granted (and should not be: a fork's
-      # pull request gets that token). GHCR_READ_TOKEN is a secret, so a fork never sees it.
+      # The deploy e2e image and container install @quadrantcapital/messaging, contracts and db,
+      # which this public repository's GITHUB_TOKEN is not granted (and should not be: a fork's pull
+      # request gets that token). GHCR_READ_TOKEN is a secret, so a fork never sees it.
       NODE_AUTH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
-      # M-351: the system this pull request joins. Into dev: deploy@dev, and `:dev` for every image
-      # it does not override. Into main — a promotion or a hotfix — deploy@main and `:latest`,
-      # which is what the pilot runs.
+      # The system this pull request joins. Into dev: deploy@dev, and `:dev` for every image it does
+      # not override. Into main — a promotion or a hotfix — deploy@main and `:latest`, which is what
+      # the pilot runs.
       DEPLOY_REF: ${{ github.base_ref == 'main' && 'main' || 'dev' }}
       E2E_IMAGE_TAG: ${{ github.base_ref == 'main' && 'latest' || 'dev' }}
       # The runner this pull request built, against every other image of the system it joins: the
       # deploy e2e runs it as the stack's hosted runner, and as the second, self-hosted one it registers.
       E2E_SWAP_VENUE_RUNNER: ghcr.io/quadrantcapital/venue-runner:${{ needs.image-pr.outputs.tag }}
-      # e2e-stack.sh refuses to run unless every overridden image carries this tree (M-500).
+      # e2e-stack.sh refuses to run unless every overridden image carries this tree.
       BUILD_TREE_UNDER_TEST: ${{ needs.image-pr.outputs.tree }}
     steps:
       # This repository's own GITHUB_TOKEN reaches neither qvantera-deploy nor the
       # sibling-owned GHCR packages — measured, not assumed. Two organisation secrets cover
       # the gap, deliberately split by purpose so that neither carries write anywhere:
       #   E2E_CI_TOKEN    fine-grained PAT, Contents:Read on qvantera-deploy — the checkout.
-      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull, and
-      #                   the e2e image's npm install (SEC-14).
+      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull, and the
+      #                   e2e image's npm install.
       # One token cannot do both: a classic PAT has no "read code" scope short of `repo`,
       # which is write access to every private repository in the organisation.
       - name: Require the two cross-repository tokens
@@ -305,11 +304,11 @@ jobs:
           GH_TOKEN: ${{ secrets.E2E_CI_TOKEN }}
         run: |
           if [ -z "${E2E_CI_TOKEN}" ]; then
-            echo "::error::E2E_CI_TOKEN is not visible to this repository. Fine-grained PAT, Contents:Read on qvantera-deploy. See M-411 in 13-action-plan.md."
+            echo "::error::E2E_CI_TOKEN is not visible to this repository. Fine-grained PAT, Contents:Read on qvantera-deploy. An organisation administrator adds it to this repository's secrets."
             exit 1
           fi
           if [ -z "${GHCR_READ_TOKEN}" ]; then
-            echo "::error::GHCR_READ_TOKEN is not visible to this repository. Classic PAT, read:packages only. See M-411 in 13-action-plan.md."
+            echo "::error::GHCR_READ_TOKEN is not visible to this repository. Classic PAT, read:packages only. An organisation administrator adds it to this repository's secrets."
             exit 1
           fi
           # An expired or under-scoped token makes the checkout below fail with
@@ -330,10 +329,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_READ_TOKEN }}
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-      # M-351d: deploy's helper, from the same checkout as e2e-stack.sh. The key is that checkout's tree
-      # and every image the stack would run, this pull request's own among them, and the record is a
-      # commit status on this repository's pull request head — so the one run it saves is a re-run of
-      # an unchanged head (testing.md § "One run per tree").
+      # deploy's helper, from the same checkout as e2e-stack.sh. The key is that checkout's tree and
+      # every image the stack would run, this pull request's own among them, and the record is a commit
+      # status on this repository's pull request head — so the one run it saves is a re-run of an
+      # unchanged head.
       - name: Green record
         id: record
         env:

@@ -15,7 +15,7 @@ export const EGRESS_LOOKUP_MS = 10 * 60_000
 export const HELLO_TIMEOUT_MS = 5_000
 /** A login is renewed this far into its life, leaving the rest for the old connection's last replies. */
 export const ROLLOVER_AT = 0.7
-/** The hosted runner's scope (M-366); a registered runner learns its own from the hello. */
+/** The hosted runner's scope; a registered runner learns its own from the hello. */
 export const PLATFORM_SCOPE = 'platform'
 
 type Log = {
@@ -29,7 +29,7 @@ type Hello = WireMessageByType['RunnerHelloResponse']
 export type Identity = { scope: string; runner: string; runnerId: string; name: string }
 
 /**
- * The runner's whole job (M-366, M-367, § D-36): answer spot-gateway's relayed requests on its own
+ * The runner's whole job: answer spot-gateway's relayed requests on its own
  * subjects, from the lane each names; hold the venue sockets spot-gateway opens through it; say
  * every ten seconds that it is alive, which lanes it has and what the venue sees from each; and ask
  * the platform, every round, what it is and which lanes it may use.
@@ -60,7 +60,7 @@ export async function startRunner(deps: {
   allowedHosts?: readonly string[]
   version: string
   closeDeadlineMs: number
-  /** The e2e's shortened heartbeat (ENG-10); otherwise `HEARTBEAT_MS`. */
+  /** The e2e's shortened heartbeat (`QV_TEST_RUNNER_HEARTBEAT_MS`); otherwise `HEARTBEAT_MS`. */
   heartbeatMs?: number
   log: Log
   /** The platform revoked this runner: it must stop. */
@@ -142,7 +142,7 @@ export async function startRunner(deps: {
   }
 
   // Who it is. A registered runner learns its subjects' scope from the platform and cannot serve
-  // before it has; the hosted runner's are fixed (M-366), and a platform from before the hello does
+  // before it has; the hosted runner's are fixed, and a platform from before the hello does
   // not answer it.
   let identity: Identity | undefined
   for (;;) {
