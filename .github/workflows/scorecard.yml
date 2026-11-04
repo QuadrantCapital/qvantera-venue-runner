@@ -1,6 +1,6 @@
 name: scorecard
 
-# DELIVERY-07: OpenSSF Scorecard on every repository. The CLI, not ossf/scorecard-action: the action
+# OpenSSF Scorecard on every repository. The CLI, not ossf/scorecard-action: the action
 # refuses every branch but the default one, main, while work lands on dev; and publishing a result or
 # uploading it to code scanning needs a public repository or GitHub Advanced Security. The result is
 # this job's summary and a JSON artifact.
@@ -19,7 +19,8 @@ permissions:
 
 jobs:
   scorecard:
-    # A public repository never runs on our self-hosted runners (§ D-24, SEC-14).
+    # A public repository never runs on our self-hosted runners: the organisation's self-hosted group
+    # refuses public repositories.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # What Scorecard reads through the API with this job's token on a private repository.

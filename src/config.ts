@@ -6,9 +6,9 @@ import { z } from 'zod'
  * names it.
  *
  * Two ways to log in, never both:
- *   - `QV_RUNNER_TOKEN` — a registered runner (M-367): the token is the NATS password, presented
+ *   - `QV_RUNNER_TOKEN` — a registered runner: the token is the NATS password, presented
  *     over the platform's WebSocket listener, and the platform's auth callout decides what it may do.
- *   - `NATS_USER` / `NATS_PASS` — the platform's own hosted runner on its Compose network (M-366),
+ *   - `NATS_USER` / `NATS_PASS` — the platform's own hosted runner on its Compose network,
  *     which the platform's configuration names. Never a customer's.
  */
 
@@ -56,7 +56,7 @@ const schema = z
     NATS_CLOSE_DEADLINE_MS: intFrom(25_000, 0),
     LOG_LEVEL: z.enum(LOG_LEVELS).optional().default('info'),
     QV_ENV: optionalText,
-    // A development switch (ENG-10): the e2e shortens the heartbeat with the staleness Control and
+    // A development switch: the e2e shortens the heartbeat with the staleness Control and
     // the gateway judge it by, so an outage is seen in seconds. Refused when QV_ENV=production.
     QV_TEST_RUNNER_HEARTBEAT_MS: optionalText
       .transform((v) => (v === undefined ? undefined : Number(v)))
@@ -116,8 +116,8 @@ export type RunnerConfig = {
 }
 
 /**
- * The platform's NATS: its WebSocket listener behind the HTTPS ingress, `wss://<host>/nats`
- * (§ D-36). `NATS_URL` replaces it for a runner beside the platform (its Compose network, a test).
+ * The platform's NATS: its WebSocket listener behind the HTTPS ingress, `wss://<host>/nats`.
+ * `NATS_URL` replaces it for a runner beside the platform (its Compose network, a test).
  */
 export function natsUrlFor(platformUrl: string): string {
   const url = new URL(platformUrl)

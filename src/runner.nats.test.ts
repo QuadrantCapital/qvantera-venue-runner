@@ -45,7 +45,7 @@ function peer(nc: NatsConnection) {
 const request = (url: string, lane = '', timeoutMs = 2_000) => ({ method: 'GET', url, headers: [], body: new Uint8Array(), timeoutMs, lane })
 
 /**
- * The runner over a real nats-server as the platform's hosted runner logs in (M-366): a static
+ * The runner over a real nats-server as the platform's hosted runner logs in: a static
  * user, `platform` scope. What spot-gateway sends on the runner's subjects comes back as the venue's
  * answer from the lane it named; the in-flight cap answers `busy` instead of queueing; the heartbeat
  * carries the lanes; the platform's hello reply selects them without a restart; a host outside its
@@ -66,7 +66,7 @@ const server: NatsServer | null = await startNats(
 )
 const describeNats = server ? describe : describe.skip
 
-describeNats('venue runner over NATS (M-366, M-367)', () => {
+describeNats('venue runner over NATS', () => {
   let gatewayNc: NatsConnection
   let gw: ReturnType<typeof peer>
   let bus: RunnerBus

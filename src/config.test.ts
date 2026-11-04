@@ -3,7 +3,7 @@ import { natsUrlFor, parseConfig } from './config.js'
 
 const TOKEN = `qv_rnr_0123456789ab_${'A'.repeat(43)}`
 
-describe('runner configuration (M-367)', () => {
+describe('runner configuration', () => {
   it("logs a registered runner in over the platform's WebSocket, as its token's prefix", () => {
     const c = parseConfig({ QV_PLATFORM_URL: 'https://qvantera.example.com', QV_RUNNER_TOKEN: TOKEN })
     expect(c.natsUrl).toBe('wss://qvantera.example.com/nats')
@@ -49,7 +49,7 @@ describe('runner configuration (M-367)', () => {
     expect(c.natsUrl).toBe('nats://nats:4222')
   })
 
-  it('takes a shortened heartbeat for the e2e, and refuses it in production (ENG-10)', () => {
+  it('takes a shortened heartbeat for the e2e, and refuses it in production', () => {
     const env = { NATS_URL: 'nats://nats:4222', NATS_USER: 'venue-runner', NATS_PASS: 'secret' }
     expect(parseConfig(env).heartbeatMs).toBeUndefined()
     expect(parseConfig({ ...env, QV_ENV: 'development', QV_TEST_RUNNER_HEARTBEAT_MS: '1000' }).heartbeatMs).toBe(1000)

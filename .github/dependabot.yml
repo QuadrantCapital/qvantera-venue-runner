@@ -7,7 +7,7 @@ registries:
 updates:
   - package-ecosystem: npm
     directory: /
-    # M-351: pull requests go to dev, like every other change; main only promotes.
+    # Pull requests go to dev, like every other change; main only promotes.
     target-branch: dev
     schedule:
       interval: weekly

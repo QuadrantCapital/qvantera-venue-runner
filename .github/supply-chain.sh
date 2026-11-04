@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# What an image carries, and what lets main promote it (DELIVERY-01, docs/engineering/supply-chain.md).
+# What an image carries, and what lets main promote it.
 #
 #   scan    <image@digest>           A CycloneDX SBOM of the image, then the vulnerability gate: a Critical
 #                                    with a fix fails. Findings of every severity are printed.
@@ -14,7 +14,7 @@
 #   no-oidc <dir>…                   No workflow in the directories asks for an OIDC token or runs a
 #                                    keyless signing action: nothing could sign without the key.
 #
-# Signed with this repository's own cosign key (owner, 2026-11-02): the private key and its password are
+# Signed with this repository's own cosign key: the private key and its password are
 # secrets of the `signing` environment, open to dev and hotfix/* only, and only the job that calls
 # `release` reads them. The public key is cosign.pub next to this script. Nothing reaches a public
 # transparency log: cosign is given an empty signing config (no Fulcio, Rekor or timestamp service), and
@@ -25,7 +25,7 @@
 set -euo pipefail
 
 # The one severity that fails the gate. High is printed but does not fail: the runtime images still
-# carry the base image's npm, whose Highs are not fixed by ignoring npm's findings (ClickUp Backlog).
+# carry the base image's npm, whose Highs are not fixed by ignoring npm's findings.
 GATE=critical
 PUBKEY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign.pub"
 

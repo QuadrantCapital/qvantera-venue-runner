@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # supply-chain.sh against shims of syft, grype, cosign and docker: what it writes, what it refuses,
 # and that an image gets its tags last. The real tools, and the signing round trip against GHCR, run in
-# CI on a push to dev (docs/engineering/supply-chain.md).
+# CI on a push to dev.
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

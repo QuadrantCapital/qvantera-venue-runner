@@ -11,7 +11,7 @@ import { lookupEgressIp, startRunner, type Runner } from './runner.js'
 import { statusServer } from './status.js'
 import { RUNNER_VERSION } from './version.js'
 
-// The venue runner (M-366, M-367, § D-36): the venue egress, outside the platform. It holds no venue
+// The venue runner: the venue egress, outside the platform. It holds no venue
 // secret, no database handle and no adapter — spot-gateway signs, the runner sends, from the lane
 // spot-gateway chose.
 let cfg: ReturnType<typeof config>
@@ -25,7 +25,7 @@ try {
 const build = loadBuildInfo()
 const log = pino({
   level: cfg.logLevel,
-  // Every line names the service and the build (M-500), as every platform service's does.
+  // Every line names the service and the build, as every platform service's does.
   base: { pid: process.pid, hostname: hostname(), build_sha: build.sha, service: 'venue-runner' },
   // The token is the runner's NATS password: no field of that name is ever written.
   redact: { paths: ['pass', '*.pass', 'token', '*.token'], censor: '[redacted]' },

@@ -6,7 +6,7 @@ import type { WireMessageByType } from '@quadrantcapital/wire'
 import { ordered, type RunnerBus } from './bus.js'
 import { relayHttp } from './http-relay.js'
 import { applySelection, resolveLanes, type Lane } from './lanes.js'
-import { createSocketRelay, type SocketRelay } from './socket-relay.js'
+import { createSocketRelay } from './socket-relay.js'
 
 export const HEARTBEAT_MS = 10_000
 /** Each lane's public address is looked up at start and this often after — never per venue request. */
@@ -15,7 +15,7 @@ export const EGRESS_LOOKUP_MS = 10 * 60_000
 export const HELLO_TIMEOUT_MS = 5_000
 /** A login is renewed this far into its life, leaving the rest for the old connection's last replies. */
 export const ROLLOVER_AT = 0.7
-/** The hosted runner's scope (M-366); a registered runner learns its own from the hello. */
+/** The hosted runner's scope; a registered runner learns its own from the hello. */
 export const PLATFORM_SCOPE = 'platform'
 
 type Log = {
@@ -29,7 +29,7 @@ type Hello = WireMessageByType['RunnerHelloResponse']
 export type Identity = { scope: string; runner: string; runnerId: string; name: string }
 
 /**
- * The runner's whole job (M-366, M-367, § D-36): answer spot-gateway's relayed requests on its own
+ * The runner's whole job: answer spot-gateway's relayed requests on its own
  * subjects, from the lane each names; hold the venue sockets spot-gateway opens through it; say
  * every ten seconds that it is alive, which lanes it has and what the venue sees from each; and ask
  * the platform, every round, what it is and which lanes it may use.
@@ -60,18 +60,15 @@ export async function startRunner(deps: {
   allowedHosts?: readonly string[]
   version: string
   closeDeadlineMs: number
-  /** The e2e's shortened heartbeat (ENG-10); otherwise `HEARTBEAT_MS`. */
+  /** The e2e's shortened heartbeat (`QV_TEST_RUNNER_HEARTBEAT_MS`); otherwise `HEARTBEAT_MS`. */
   heartbeatMs?: number
   log: Log
   /** The platform revoked this runner: it must stop. */
   onRevoked: () => void
-  relay?: SocketRelay
-  now?: () => number
 }) {
   const { bus, log } = deps
-  const now = deps.now ?? Date.now
   const instanceId = randomUUID()
-  const startedAt = now()
+  const startedAt = Date.now()
   let inflight = 0
   let egress: string[] | null = null
   let lanes: Lane[] = await resolveLanes(deps.addresses, deps.lookup, egress)
@@ -138,11 +135,11 @@ export async function startRunner(deps: {
           if (!stopped) scheduleRollover(ttlSec, HELLO_TIMEOUT_MS)
         })
     }, inMs)
-    rolloverTimer.unref?.()
+    rolloverTimer.unref()
   }
 
   // Who it is. A registered runner learns its subjects' scope from the platform and cannot serve
-  // before it has; the hosted runner's are fixed (M-366), and a platform from before the hello does
+  // before it has; the hosted runner's are fixed, and a platform from before the hello does
   // not answer it.
   let identity: Identity | undefined
   for (;;) {
@@ -162,17 +159,15 @@ export async function startRunner(deps: {
   }
   const { scope, runner } = identity as Identity
 
-  const relay =
-    deps.relay ??
-    createSocketRelay({
-      log,
-      events: {
-        frame: (socketId, data, binary) =>
-          bus.publish(subjects.runnerWsFrame(scope, runner, socketId), 'RunnerWsFrameEvent', { data, binary }),
-        closed: (socketId, code, reason) =>
-          bus.publish(subjects.runnerWsClosed(scope, runner, socketId), 'RunnerWsClosedEvent', { code, reason }),
-      },
-    })
+  const relay = createSocketRelay({
+    log,
+    events: {
+      frame: (socketId, data, binary) =>
+        bus.publish(subjects.runnerWsFrame(scope, runner, socketId), 'RunnerWsFrameEvent', { data, binary }),
+      closed: (socketId, code, reason) =>
+        bus.publish(subjects.runnerWsClosed(scope, runner, socketId), 'RunnerWsClosedEvent', { code, reason }),
+    },
+  })
 
   /**
    * The lane a request names, if the runner has it active. `''` is the host's default route; a
@@ -261,7 +256,7 @@ export async function startRunner(deps: {
       scope,
       instanceId,
       version: deps.version,
-      uptimeSec: BigInt(Math.floor((now() - startedAt) / 1000)),
+      uptimeSec: BigInt(Math.floor((Date.now() - startedAt) / 1000)),
       egressIp: egressIp(),
       openSockets: ids.length,
       inflightRequests: inflight,
@@ -286,9 +281,9 @@ export async function startRunner(deps: {
   log.info({ scope, runner, runnerId: identity.runnerId, lanes, instanceId }, 'runner lanes')
   heartbeat()
   const heartbeats = setInterval(() => void round(), deps.heartbeatMs ?? HEARTBEAT_MS)
-  heartbeats.unref?.()
+  heartbeats.unref()
   const lookups = deps.lookup ? setInterval(() => void lookupLanes(), EGRESS_LOOKUP_MS) : undefined
-  lookups?.unref?.()
+  lookups?.unref()
 
   return {
     identity: identity as Identity,

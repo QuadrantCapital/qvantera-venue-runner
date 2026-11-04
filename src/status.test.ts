@@ -26,7 +26,7 @@ const runner = {
   inflight: () => 0,
 }
 
-describe('the runner status routes (M-805a)', () => {
+describe('the runner status routes', () => {
   let server: Server | undefined
   let link: Link = 'up'
   let shuttingDown = false

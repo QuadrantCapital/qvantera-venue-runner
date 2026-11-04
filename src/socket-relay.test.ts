@@ -13,7 +13,7 @@ async function until(cond: () => boolean, ms = 3_000): Promise<void> {
   }
 }
 
-describe('socket relay (M-366)', () => {
+describe('socket relay', () => {
   let venue: WebSocketServer
   let url: string
   let peers: WebSocket[]

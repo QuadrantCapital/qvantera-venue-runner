@@ -5,8 +5,8 @@ import { registry, sample } from './metrics.js'
 import type { Runner } from './runner.js'
 
 /**
- * The runner's HTTP surface, on the probe contract every platform service follows (M-502, M-805,
- * M-805a): `/health` is liveness and looks at nothing outside the process, so a lost NATS login
+ * The runner's HTTP surface, on the probe contract every platform service follows: `/health` is
+ * liveness and looks at nothing outside the process, so a lost NATS login
  * never fails it and a healthcheck never restarts a runner that is only waiting for the platform;
  * `/ready` names what the runner cannot serve without.
  */
