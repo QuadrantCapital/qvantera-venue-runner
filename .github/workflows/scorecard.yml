@@ -44,7 +44,7 @@ jobs:
             --repo="github.com/${GITHUB_REPOSITORY}" --commit="${COMMIT}" --format=json --show-details > "${RESULT}"
           jq -r '"Scorecard \(.score) / 10 at \(.repo.commit)\n\n| Check | Score | Reason |\n| --- | --- | --- |",
             (.checks[] | "| \(.name) | \(.score) | \(.reason) |")' "${RESULT}" >> "${GITHUB_STEP_SUMMARY}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: scorecard
           path: ${{ runner.temp }}/scorecard.json
