@@ -3,13 +3,13 @@ name: ci
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  # dev builds each tree's image once; main promotes it and builds nothing (M-351, as every
-  # qvantera repository).
+  # dev builds each tree's image once; main promotes it and builds nothing, as every
+  # qvantera repository.
   push:
     branches: [dev, main, 'hotfix/**']
   workflow_dispatch:
 
-# A pull request's runs are grouped by its number, never with a branch's pushes (M-341d).
+# A pull request's runs are grouped by its number, never with a branch's pushes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -18,42 +18,56 @@ permissions:
   contents: read
   packages: read
 
+# This repository is public, so every job runs on GitHub-hosted runners. The organisation's
+# self-hosted group refuses public repositories: a fork's pull request must never run its code on the
+# machines next to production.
 jobs:
   test:
-    runs-on: [self-hosted, qvantera]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: corepack enable
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: https://npm.pkg.github.com
           scope: "@quadrantcapital"
       - run: corepack enable
       - run: yarn install --immutable
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Every dependency a version or a workspace, ours from another repository exact.
+      - run: yarn constraints
+      # No base image by tag; the supply-chain and promote scripts against shims.
+      - run: ./.github/supply-chain.sh pins Dockerfile
+      # No workflow asks for an OIDC token or runs a keyless signing action; images are signed with
+      # this repository's key only.
+      - run: ./.github/supply-chain.sh no-oidc .github/workflows
+      - run: bash .github/supply-chain.test.sh
+      - run: bash .github/promote-image.test.sh
       - run: yarn typecheck
       - run: yarn lint
       - run: ./.github/check-subject-literals.sh
       - run: yarn test
       - run: yarn build
 
-  # M-351: the one build of a tree. `:tree-<tree>` is what a promotion looks up, `:sha-<sha>` the
+  # The one build of a tree. `:tree-<tree>` is what a promotion looks up, `:sha-<sha>` the
   # revision, `:dev` what a pull request into dev runs against. Never `:latest`: only `promote`
-  # on main moves that, and it is what the pilot pulls.
+  # on main moves that, and it is what production pulls.
   image:
     needs: test
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/heads/hotfix/'))
-    runs-on: [self-hosted, qvantera-build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # M-500: the identity the image records. On a pull request HEAD is the merge commit
+      # The identity the image records. On a pull request HEAD is the merge commit
       # actions/checkout made, which is exactly the tree the image is built from.
       - name: Build identity
         id: build-id
@@ -68,57 +82,109 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # D-24: on our runners the Docker daemon's own BuildKit keeps every layer and the Yarn
-      # cache mount between jobs, so there is no buildx builder to set up and no cache to
-      # ship to GitHub and back; qvantera-ci-prune ages the build cache out.
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      # A GitHub-hosted runner starts with an empty BuildKit cache. The layers are kept in the Actions
+      # cache instead (`type=gha`), so an unchanged layer (the base image, the installed dependencies)
+      # is not built again; a pull request reads dev's cache.
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
           push: true
-          provenance: false
+          provenance: mode=max
           build-args: |
             QV_BUILD_SHA=${{ steps.build-id.outputs.sha }}
             QV_BUILD_TREE=${{ steps.build-id.outputs.tree }}
             QV_BUILD_TIME=${{ steps.build-id.outputs.time }}
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
-          tags: |
-            ghcr.io/quadrantcapital/venue-runner:tree-${{ steps.build-id.outputs.tree }}
-            ghcr.io/quadrantcapital/venue-runner:sha-${{ steps.build-id.outputs.sha }}
-            ${{ github.ref == 'refs/heads/dev' && 'ghcr.io/quadrantcapital/venue-runner:dev' || '' }}
+          tags: ghcr.io/quadrantcapital/venue-runner:build-${{ github.run_id }}-${{ github.run_attempt }}
 
-  # M-351: main never builds. The image dev built for this exact tree becomes `:latest` and
+  # The one job that holds the signing key. The build above pushed `:build-*` and holds no
+  # key; this job scans that digest, attaches the SBOM, signs with this repository's own key, checks the
+  # signature against .github/cosign.pub, and only then gives the digest `:tree-*`, `:sha-*` and, on dev,
+  # `:dev` — so no tag anything resolves points at an unsigned image. A failed gate leaves `:build-*` and
+  # nothing else; prune-pr-images ages it out. COSIGN_PRIVATE_KEY and COSIGN_PASSWORD are secrets of the
+  # `signing` environment, whose deployment branches are dev and hotfix/*: a job on any other branch is
+  # refused before it starts, and no other job here can read them. No workflow asks for an OIDC token, so
+  # nothing signs keyless or reaches a public transparency log (supply-chain.sh no-oidc).
+  sign:
+    needs: image
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/heads/hotfix/'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: signing
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.4
+      - id: syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - id: grype
+        uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+      - run: dirname "${{ steps.syft.outputs.cmd }}" "${{ steps.grype.outputs.cmd }}" >> "$GITHUB_PATH"
+      - name: Scan, attest, sign and tag
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          tags=("tree-$(git rev-parse 'HEAD^{tree}')" "sha-$(git rev-parse HEAD)")
+          [ "${GITHUB_REF}" != refs/heads/dev ] || tags+=(dev)
+          ./.github/supply-chain.sh release "ghcr.io/quadrantcapital/venue-runner@${DIGEST}" "${tags[@]}"
+
+  # main never builds. The image dev built for this exact tree becomes `:latest` and
   # `:sha-<this commit>`, byte for byte; a tree with no dev build fails "no artifact for this tree".
   promote:
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, qvantera-build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.4
       - name: Promote this tree's dev build
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./.github/promote-image.sh venue-runner "$(git rev-parse 'HEAD^{tree}')" "$(git rev-parse HEAD)"
 
-  # M-411, as in every qvantera repository: build this pull request's image and run the full e2e
-  # against a stack where it is the only thing that is not the system it joins — `:dev` for a pull
-  # request into dev, `:latest` for one into main.
+  # Build this pull request's image and run the full e2e against a stack where it is the only thing
+  # that is not the system it joins — `:dev` for a pull request into dev, `:latest` for one into main.
   image-pr:
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
-    runs-on: [self-hosted, qvantera-build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
       packages: write
     env:
-      # M-351: a pull request into main from dev (a promotion) or from hotfix/* carries a tree that
-      # branch's push has already built. It is tested as that artifact, never rebuilt, so the
-      # image main will promote is the image this e2e runs.
+      # A pull request into main from dev (a promotion) or from hotfix/* carries a tree that branch's
+      # push has already built. It is tested as that artifact, never rebuilt, so the image main will
+      # promote is the image this e2e runs.
       PROMOTION: ${{ github.base_ref == 'main' && (github.head_ref == 'dev' || startsWith(github.head_ref, 'hotfix/')) }}
     # Every leg checks out the same commit, so whichever leg sets them, they are the same.
     outputs:
@@ -126,7 +192,7 @@ jobs:
       tag: ${{ steps.build-id.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # M-500: the identity the image records. On a pull request HEAD is the merge commit
+      # The identity the image records. On a pull request HEAD is the merge commit
       # actions/checkout made, which is exactly the tree the image is built from.
       - name: Build identity
         id: build-id
@@ -143,6 +209,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
       - name: The artifact this tree already has
         if: env.PROMOTION == 'true'
         run: |
@@ -155,9 +222,12 @@ jobs:
       # `:pr-<n>` and nothing else: a pull request's build is never promotable, so it never
       # writes `:tree-*`, `:sha-*`, `:dev` or `:latest`. prune-pr-images deletes these again.
       - if: env.PROMOTION != 'true'
+        id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
           push: true
           provenance: false
           build-args: |
@@ -167,38 +237,64 @@ jobs:
           secrets: |
             NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           tags: ghcr.io/quadrantcapital/venue-runner:${{ steps.build-id.outputs.tag }}
+      # The gate runs here too, so a fixed Critical fails the pull request, not dev. Not signed: a
+      # pull request's image is never promotable.
+      - if: env.PROMOTION != 'true'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.4
+      - if: env.PROMOTION != 'true'
+        id: syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - if: env.PROMOTION != 'true'
+        id: grype
+        uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+      - if: env.PROMOTION != 'true'
+        run: dirname "${{ steps.syft.outputs.cmd }}" "${{ steps.grype.outputs.cmd }}" >> "$GITHUB_PATH"
+      - if: env.PROMOTION != 'true'
+        run: ./.github/supply-chain.sh scan "ghcr.io/quadrantcapital/venue-runner@${{ steps.build.outputs.digest }}"
 
   e2e-pr:
     # image-pr no longer waits for test: the build runners take it while the tests run, and a
     # failed test still stops the e2e here.
     needs: [test, image-pr]
+    # `e2e-pr` is a required check on dev, and GitHub counts a skipped check as passed.
+    # A run that will not test this head — a draft, or a test or image-pr that did not pass — so
+    # carries another name, and the required `e2e-pr` stays missing until a run has really tested it.
+    # Otherwise a draft's skipped e2e-pr lets the pull request merge before its ready run reaches the
+    # e2e (or when that run never starts, qvantera-deploy#187), and a broken image build merges untested.
+    name: ${{ (github.event.pull_request.draft || needs.test.result != 'success' || needs.image-pr.result != 'success') && 'e2e-pr (not run)' || 'e2e-pr' }}
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
-    runs-on: [self-hosted, qvantera-e2e]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
       packages: read
-      # M-351d: the e2e green record is a commit status `e2e/green` on this pull request's head.
+      # The e2e green record is a commit status `e2e/green` on this pull request's head.
       statuses: write
     env:
       SDK_GITHUB_TOKEN: ${{ secrets.SDK_GITHUB_TOKEN }}
-      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # M-351: the system this pull request joins. Into dev: deploy@dev, and `:dev` for every image
-      # it does not override. Into main — a promotion or a hotfix — deploy@main and `:latest`,
-      # which is what the pilot runs.
+      # The deploy e2e image and container install @quadrantcapital/messaging, contracts and db,
+      # which this public repository's GITHUB_TOKEN is not granted (and should not be: a fork's pull
+      # request gets that token). GHCR_READ_TOKEN is a secret, so a fork never sees it.
+      NODE_AUTH_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+      # The system this pull request joins. Into dev: deploy@dev, and `:dev` for every image it does
+      # not override. Into main — a promotion or a hotfix — deploy@main and `:latest`, which is what
+      # production runs.
       DEPLOY_REF: ${{ github.base_ref == 'main' && 'main' || 'dev' }}
       E2E_IMAGE_TAG: ${{ github.base_ref == 'main' && 'latest' || 'dev' }}
       # The runner this pull request built, against every other image of the system it joins: the
       # deploy e2e runs it as the stack's hosted runner, and as the second, self-hosted one it registers.
       E2E_SWAP_VENUE_RUNNER: ghcr.io/quadrantcapital/venue-runner:${{ needs.image-pr.outputs.tag }}
-      # e2e-stack.sh refuses to run unless every overridden image carries this tree (M-500).
+      # e2e-stack.sh refuses to run unless every overridden image carries this tree.
       BUILD_TREE_UNDER_TEST: ${{ needs.image-pr.outputs.tree }}
     steps:
       # This repository's own GITHUB_TOKEN reaches neither qvantera-deploy nor the
       # sibling-owned GHCR packages — measured, not assumed. Two organisation secrets cover
       # the gap, deliberately split by purpose so that neither carries write anywhere:
       #   E2E_CI_TOKEN    fine-grained PAT, Contents:Read on qvantera-deploy — the checkout.
-      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull.
+      #   GHCR_READ_TOKEN classic PAT, read:packages and nothing else — the registry pull, and the
+      #                   e2e image's npm install.
       # One token cannot do both: a classic PAT has no "read code" scope short of `repo`,
       # which is write access to every private repository in the organisation.
       - name: Require the two cross-repository tokens
@@ -208,11 +304,11 @@ jobs:
           GH_TOKEN: ${{ secrets.E2E_CI_TOKEN }}
         run: |
           if [ -z "${E2E_CI_TOKEN}" ]; then
-            echo "::error::E2E_CI_TOKEN is not visible to this repository. Fine-grained PAT, Contents:Read on qvantera-deploy. See M-411 in 13-action-plan.md."
+            echo "::error::E2E_CI_TOKEN is not visible to this repository. Fine-grained PAT, Contents:Read on qvantera-deploy. An organisation administrator grants this repository access to the organisation secret."
             exit 1
           fi
           if [ -z "${GHCR_READ_TOKEN}" ]; then
-            echo "::error::GHCR_READ_TOKEN is not visible to this repository. Classic PAT, read:packages only. See M-411 in 13-action-plan.md."
+            echo "::error::GHCR_READ_TOKEN is not visible to this repository. Classic PAT, read:packages only. An organisation administrator grants this repository access to the organisation secret."
             exit 1
           fi
           # An expired or under-scoped token makes the checkout below fail with
@@ -232,36 +328,29 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_READ_TOKEN }}
-      # M-351d: deploy's helper, from the same checkout as e2e-stack.sh. The key is that checkout's tree
-      # and every image the stack would run, this pull request's own among them, and the record is a
-      # commit status on this repository's pull request head — so the one run it saves is a re-run of
-      # an unchanged head (testing.md § "One run per tree").
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      # deploy's helper, from the same checkout as e2e-stack.sh. The key is that checkout's tree and
+      # every image the stack would run, this pull request's own among them, and the record is a commit
+      # status on this repository's pull request head — so the one run it saves is a re-run of an
+      # unchanged head.
       - name: Green record
         id: record
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/ci/green-status.sh check
-      - name: Build backup image (load for compose)
-        if: steps.record.outputs.skip != 'true'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
-        with:
-          context: .
-          file: Dockerfile.backup
-          load: true
-          push: false
-          provenance: false
-          tags: ghcr.io/quadrantcapital/backup:latest
       - if: steps.record.outputs.skip != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=e2e
+          cache-to: type=gha,mode=max,scope=e2e
           file: Dockerfile.e2e
           load: true
           push: false
           provenance: false
           tags: qvantera-e2e:ci
           secrets: |
-            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
+            NODE_AUTH_TOKEN=${{ secrets.GHCR_READ_TOKEN }}
       - if: steps.record.outputs.skip != 'true'
         run: ./scripts/ci/e2e-stack.sh
       - name: Write the green record

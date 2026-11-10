@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# M-115: every NATS subject comes from the table generated from
-# qvantera-contracts/subjects/registry.yaml and shipped in @quadrantcapital/proto.
+# Every NATS subject comes from the table generated from
+# qvantera-contracts/catalog/subjects.yaml and shipped in @quadrantcapital/proto.
 #
 # The rule is "no `qvantera.` subject written by hand", not "no *new* subject written by hand".
-# The first version of this check only refused `qvantera.v1.`, and it missed four handlers that
-# still carried the OLD names inside regexes — `^qvantera\.broker\.market\.([^.]+)\.` and
-# friends — which typecheck cannot see and which broke every per-venue request path at runtime.
+# A handler can carry a subject name inside a regex — `^qvantera\.broker\.market\.([^.]+)\.` —
+# which typecheck cannot see and which breaks a request path at runtime once the subject is renamed.
 # So: any subject-shaped `qvantera.` literal, old or new, escaped or not.
 #
 # Tests are exempt on purpose. A test that asserts the literal name is how a rename is noticed
@@ -18,8 +17,7 @@ cd "$(dirname "$0")/.."
 # Only the roots this repository actually has. This is load-bearing, not tidiness: GNU grep
 # exits 2 on a missing directory operand, and `if hits=$(...)` reads that as "no hits", so
 # naming a root that does not exist turned the whole check into a silent pass on CI while BSD
-# grep still failed it locally. It was inert in all three TypeScript repositories — each has
-# exactly one of these roots — from M-115 until this fix.
+# grep still failed it locally.
 roots=()
 for d in src apps packages; do
   [[ -d $d ]] && roots+=("$d")

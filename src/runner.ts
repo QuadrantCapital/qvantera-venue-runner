@@ -6,7 +6,7 @@ import type { WireMessageByType } from '@quadrantcapital/wire'
 import { ordered, type RunnerBus } from './bus.js'
 import { relayHttp } from './http-relay.js'
 import { applySelection, resolveLanes, type Lane } from './lanes.js'
-import { createSocketRelay, type SocketRelay } from './socket-relay.js'
+import { createSocketRelay } from './socket-relay.js'
 
 export const HEARTBEAT_MS = 10_000
 /** Each lane's public address is looked up at start and this often after — never per venue request. */
@@ -15,7 +15,7 @@ export const EGRESS_LOOKUP_MS = 10 * 60_000
 export const HELLO_TIMEOUT_MS = 5_000
 /** A login is renewed this far into its life, leaving the rest for the old connection's last replies. */
 export const ROLLOVER_AT = 0.7
-/** The hosted runner's scope (M-366); a registered runner learns its own from the hello. */
+/** The hosted runner's scope; a registered runner learns its own from the hello. */
 export const PLATFORM_SCOPE = 'platform'
 
 type Log = {
@@ -29,7 +29,7 @@ type Hello = WireMessageByType['RunnerHelloResponse']
 export type Identity = { scope: string; runner: string; runnerId: string; name: string }
 
 /**
- * The runner's whole job (M-366, M-367, § D-36): answer spot-gateway's relayed requests on its own
+ * The runner's whole job: answer spot-gateway's relayed requests on its own
  * subjects, from the lane each names; hold the venue sockets spot-gateway opens through it; say
  * every ten seconds that it is alive, which lanes it has and what the venue sees from each; and ask
  * the platform, every round, what it is and which lanes it may use.
@@ -38,7 +38,14 @@ export type Identity = { scope: string; runner: string; runnerId: string; name: 
  * have active is refused unsent (`lane_unavailable`), never sent from another lane: spot-gateway
  * counts each lane's venue limit, and a request moved to another lane would spend a budget it did
  * not count.
+ *
+ * Its operator may bound where anything goes (`RUNNER_ALLOWED_HOSTS`): on the host network the
+ * runner reaches whatever the host does — its loopback, its private networks — so a host that runs
+ * other services lists the venue hosts, and a request or socket for any other host is refused
+ * unsent (`lane_failed`, `connect_failed`), as one that never connected.
  */
+export type Runner = Awaited<ReturnType<typeof startRunner>>
+
 export async function startRunner(deps: {
   bus: RunnerBus
   /** The NATS user: its subjects' `<runner>` token, and the subject of its hello. */
@@ -49,18 +56,19 @@ export async function startRunner(deps: {
   clients: Map<string, AxiosInstance>
   lookup: ((localAddress: string) => Promise<string | null>) | null
   maxInflight: number
+  /** `RUNNER_ALLOWED_HOSTS`; unset, any host. */
+  allowedHosts?: readonly string[]
   version: string
   closeDeadlineMs: number
+  /** The e2e's shortened heartbeat (`QV_TEST_RUNNER_HEARTBEAT_MS`); otherwise `HEARTBEAT_MS`. */
+  heartbeatMs?: number
   log: Log
   /** The platform revoked this runner: it must stop. */
   onRevoked: () => void
-  relay?: SocketRelay
-  now?: () => number
 }) {
   const { bus, log } = deps
-  const now = deps.now ?? Date.now
   const instanceId = randomUUID()
-  const startedAt = now()
+  const startedAt = Date.now()
   let inflight = 0
   let egress: string[] | null = null
   let lanes: Lane[] = await resolveLanes(deps.addresses, deps.lookup, egress)
@@ -127,11 +135,11 @@ export async function startRunner(deps: {
           if (!stopped) scheduleRollover(ttlSec, HELLO_TIMEOUT_MS)
         })
     }, inMs)
-    rolloverTimer.unref?.()
+    rolloverTimer.unref()
   }
 
   // Who it is. A registered runner learns its subjects' scope from the platform and cannot serve
-  // before it has; the hosted runner's are fixed (M-366), and a platform from before the hello does
+  // before it has; the hosted runner's are fixed, and a platform from before the hello does
   // not answer it.
   let identity: Identity | undefined
   for (;;) {
@@ -151,17 +159,15 @@ export async function startRunner(deps: {
   }
   const { scope, runner } = identity as Identity
 
-  const relay =
-    deps.relay ??
-    createSocketRelay({
-      log,
-      events: {
-        frame: (socketId, data, binary) =>
-          bus.publish(subjects.runnerWsFrame(scope, runner, socketId), 'RunnerWsFrameEvent', { data, binary }),
-        closed: (socketId, code, reason) =>
-          bus.publish(subjects.runnerWsClosed(scope, runner, socketId), 'RunnerWsClosedEvent', { code, reason }),
-      },
-    })
+  const relay = createSocketRelay({
+    log,
+    events: {
+      frame: (socketId, data, binary) =>
+        bus.publish(subjects.runnerWsFrame(scope, runner, socketId), 'RunnerWsFrameEvent', { data, binary }),
+      closed: (socketId, code, reason) =>
+        bus.publish(subjects.runnerWsClosed(scope, runner, socketId), 'RunnerWsClosedEvent', { code, reason }),
+    },
+  })
 
   /**
    * The lane a request names, if the runner has it active. `''` is the host's default route; a
@@ -174,11 +180,27 @@ export async function startRunner(deps: {
     return active.some((l) => l.localAddress === named) ? named : null
   }
 
+  const allowedHosts = deps.allowedHosts ? new Set(deps.allowedHosts) : null
+  /** Whether a URL goes to a host the operator allows; a refusal is logged by host alone. */
+  const allowed = (url: string): boolean => {
+    if (allowedHosts === null) return true
+    let host = ''
+    try {
+      host = new URL(url).hostname.toLowerCase()
+    } catch {
+      // Not a URL: nothing to send it to.
+    }
+    if (allowedHosts.has(host)) return true
+    log.warn({ host }, 'runner refused a destination outside RUNNER_ALLOWED_HOSTS')
+    return false
+  }
+
   // Above the cap a request is answered `busy` at once: a request waiting in a queue here is
   // exactly the silent queue the cap exists to prevent.
   bus.subscribe(subjects.runnerHttp(scope, runner), async (msg) => {
     if (msg.type !== 'RunnerHttpRequest') return
     const req = msg.payload as WireMessageByType['RunnerHttpRequest']
+    if (!allowed(req.url)) return { type: 'RunnerHttpResponse', payload: { error: 'lane_failed' } }
     if (inflight >= deps.maxInflight) return { type: 'RunnerHttpResponse', payload: { error: 'busy' } }
     const lane = laneFor(req.lane)
     const client = lane === null ? undefined : deps.clients.get(lane)
@@ -194,6 +216,7 @@ export async function startRunner(deps: {
   bus.subscribe(subjects.runnerWsOpen(scope, runner), async (msg) => {
     if (msg.type !== 'RunnerWsOpenRequest') return
     const body = msg.payload as WireMessageByType['RunnerWsOpenRequest']
+    if (!allowed(body.url)) return { type: 'RunnerWsOpenResponse', payload: { instanceId, error: 'connect_failed' } }
     const lane = laneFor(body.lane)
     if (lane === null) return { type: 'RunnerWsOpenResponse', payload: { instanceId, error: 'lane_unavailable' } }
     const opened = await relay.open(body.socketId, body.url, lane)
@@ -233,7 +256,7 @@ export async function startRunner(deps: {
       scope,
       instanceId,
       version: deps.version,
-      uptimeSec: BigInt(Math.floor((now() - startedAt) / 1000)),
+      uptimeSec: BigInt(Math.floor((Date.now() - startedAt) / 1000)),
       egressIp: egressIp(),
       openSockets: ids.length,
       inflightRequests: inflight,
@@ -257,10 +280,10 @@ export async function startRunner(deps: {
 
   log.info({ scope, runner, runnerId: identity.runnerId, lanes, instanceId }, 'runner lanes')
   heartbeat()
-  const heartbeats = setInterval(() => void round(), HEARTBEAT_MS)
-  heartbeats.unref?.()
+  const heartbeats = setInterval(() => void round(), deps.heartbeatMs ?? HEARTBEAT_MS)
+  heartbeats.unref()
   const lookups = deps.lookup ? setInterval(() => void lookupLanes(), EGRESS_LOOKUP_MS) : undefined
-  lookups?.unref?.()
+  lookups?.unref()
 
   return {
     identity: identity as Identity,

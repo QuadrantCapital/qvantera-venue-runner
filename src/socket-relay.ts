@@ -17,7 +17,7 @@ function bytes(data: WebSocket.RawData): Uint8Array {
 }
 
 /**
- * The venue sockets this runner holds, by the id spot-gateway gave each (M-366). The runner only
+ * The venue sockets this runner holds, by the id spot-gateway gave each. The runner only
  * moves bytes: a frame from the venue is published as it arrived, a frame from spot-gateway is
  * written as it arrived — the venue's protocol (logins, subscriptions, pings) is spot-gateway's.
  *
@@ -29,12 +29,8 @@ function bytes(data: WebSocket.RawData): Uint8Array {
 export function createSocketRelay(opts: {
   events: SocketEvents
   log: Log
-  connect?: (url: string, lane: string) => WebSocket
 }) {
   const sockets = new Map<string, WebSocket>()
-  // A socket leaves from its lane's address (M-367), so a credential's private stream is seen by the
-  // venue from the one address spot-gateway chose for it.
-  const connect = opts.connect ?? ((url: string, lane: string) => new WebSocket(url, laneSocketOptions(lane)))
 
   const ended = (socketId: string, ws: WebSocket, code: number, reason: string) => {
     // Already ended (closeAll published it), or replaced: nothing more to say about this one.
@@ -49,7 +45,9 @@ export function createSocketRelay(opts: {
       if (sockets.has(socketId)) return Promise.resolve({ error: 'connect_failed' })
       let ws: WebSocket
       try {
-        ws = connect(url, lane)
+        // A socket leaves from its lane's address, so a credential's private stream is seen by the
+        // venue from the one address spot-gateway chose for it.
+        ws = new WebSocket(url, laneSocketOptions(lane))
       } catch (err) {
         opts.log.warn({ host: hostOf(url), err: String(err) }, 'runner ws connect failed')
         return Promise.resolve({ error: 'connect_failed' })
@@ -69,7 +67,7 @@ export function createSocketRelay(opts: {
           ws.terminate()
           settle({ error: 'connect_failed' })
         }, OPEN_TIMEOUT_MS)
-        timer.unref?.()
+        timer.unref()
         ws.on('open', () => settle({}))
         ws.on('message', (data, isBinary) => opts.events.frame(socketId, bytes(data), isBinary))
         ws.on('close', (code, reason) => {
@@ -121,8 +119,6 @@ export function createSocketRelay(opts: {
     },
   }
 }
-
-export type SocketRelay = ReturnType<typeof createSocketRelay>
 
 function hostOf(url: string): string {
   try {

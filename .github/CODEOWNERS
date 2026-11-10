@@ -1,0 +1,3 @@
+# One maintainer for now, so one line: the per-service and per-contract owners replace it when a
+# second maintainer joins. dev's ruleset requires no code-owner review.
+* @LeonPucin

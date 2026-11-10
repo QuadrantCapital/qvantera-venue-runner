@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Promote the image dev built for this tree (M-351). main never builds: it finds
-# `<package>:tree-<tree>` and gives that exact manifest the tags `:latest` — what the pilot
+# Promote the image dev built for this tree. main never builds: it finds
+# `<package>:tree-<tree>` and gives that exact manifest the tags `:latest` — what production
 # pulls — and `:sha-<sha>`, this commit. The manifest is copied byte for byte through the
 # registry API, so the digest is the one dev pushed and the promotion's e2e ran.
 # `docker buildx imagetools create` would wrap a single manifest in a new index, with a new
 # digest — measured against a local registry, which is why this is not a one-liner.
+# Before anything is written, the manifest in hand is verified by its digest
+# (supply-chain.sh verify): a tree that dev did not scan and sign is not promoted, and a rebuild
+# that moves `tree-<tree>` meanwhile cannot slip in.
 #
 # Usage: promote-image.sh <package> <tree> <sha>
 # Env:   GHCR_USER, GHCR_TOKEN — write on the package (the job's own GITHUB_TOKEN).
@@ -33,6 +36,8 @@ if [ "${code}" != 200 ]; then
 fi
 digest="$(header source docker-content-digest)"
 type="$(header source content-type)"
+
+"$(dirname "$0")/supply-chain.sh" verify "ghcr.io/${repo}@${digest}"
 
 for tag in latest "sha-${sha}"; do
   curl -fsS -X PUT -H "Authorization: Bearer ${token}" -H "Content-Type: ${type}" \

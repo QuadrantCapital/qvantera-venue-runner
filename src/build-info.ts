@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 /**
- * The build this image was made from (M-500): the Dockerfile writes `/build-info.json` from the CI
+ * The build this image was made from: the Dockerfile writes `/build-info.json` from the CI
  * build args. A file rather than the environment, because anyone can set an environment variable
  * on any image; a file baked into the image cannot be configured into existence. Without one — a
  * local build — every field is `unknown`.

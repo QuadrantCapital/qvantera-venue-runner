@@ -1,4 +1,4 @@
-import { createServer } from 'node:http'
+import type { Server } from 'node:http'
 import { hostname } from 'node:os'
 import pino from 'pino'
 import { openBus } from './bus.js'
@@ -6,11 +6,12 @@ import { loadBuildInfo } from './build-info.js'
 import { config } from './config.js'
 import { createVenueHttpClient } from './http-relay.js'
 import { laneAddresses } from './lanes.js'
-import { recordBuildInfo, registry, sample } from './metrics.js'
-import { lookupEgressIp, startRunner } from './runner.js'
+import { recordBuildInfo } from './metrics.js'
+import { lookupEgressIp, startRunner, type Runner } from './runner.js'
+import { statusServer } from './status.js'
 import { RUNNER_VERSION } from './version.js'
 
-// The venue runner (M-366, M-367, § D-36): the venue egress, outside the platform. It holds no venue
+// The venue runner: the venue egress, outside the platform. It holds no venue
 // secret, no database handle and no adapter — spot-gateway signs, the runner sends, from the lane
 // spot-gateway chose.
 let cfg: ReturnType<typeof config>
@@ -24,7 +25,7 @@ try {
 const build = loadBuildInfo()
 const log = pino({
   level: cfg.logLevel,
-  // Every line names the service and the build (M-500), as every platform service's does.
+  // Every line names the service and the build, as every platform service's does.
   base: { pid: process.pid, hostname: hostname(), build_sha: build.sha, service: 'venue-runner' },
   // The token is the runner's NATS password: no field of that name is ever written.
   redact: { paths: ['pass', '*.pass', 'token', '*.token'], censor: '[redacted]' },
@@ -50,6 +51,7 @@ log.info(
       user: cfg.auth.user,
       egress: cfg.egress,
       egressIpUrl: cfg.egressIpUrl ?? null,
+      allowedHosts: cfg.allowedHosts ?? 'any',
       maxInflight: cfg.maxInflight,
     },
   },
@@ -72,7 +74,7 @@ const bus = await openBus({
 
 let shuttingDown = false
 // What exists by the time a signal or a revocation arrives: the runner may be revoked before it serves.
-const live: { runner?: Awaited<ReturnType<typeof startRunner>>; server?: ReturnType<typeof createServer> } = {}
+const live: { runner?: Runner; server?: Server } = {}
 const shutdown = async (signal: string, code = 0) => {
   if (shuttingDown) return
   shuttingDown = true
@@ -95,46 +97,23 @@ const r = await startRunner({
   clients,
   lookup,
   maxInflight: cfg.maxInflight,
+  ...(cfg.allowedHosts ? { allowedHosts: cfg.allowedHosts } : {}),
   version: RUNNER_VERSION,
   closeDeadlineMs: cfg.closeDeadlineMs,
+  ...(cfg.heartbeatMs ? { heartbeatMs: cfg.heartbeatMs } : {}),
   log,
   onRevoked: () => void shutdown('revoked', 1),
 })
 live.runner = r
 log.info({ ...r.identity, instanceId: r.instanceId, lanes: r.lanes() }, 'venue runner serving')
 
-const server = createServer((req, res) => {
-  if (req.url === '/health') {
-    res.setHeader('content-type', 'application/json')
-    res.end(
-      JSON.stringify({
-        ok: bus.connected(),
-        build,
-        version: RUNNER_VERSION,
-        outdated: r.outdated(),
-        runner: r.identity.runner,
-        runnerId: r.identity.runnerId,
-        scope: r.identity.scope,
-        instanceId: r.instanceId,
-        draining: r.draining(),
-        egressIp: r.egressIp(),
-        lanes: r.lanes(),
-        openSockets: r.openSockets(),
-        inflight: r.inflight(),
-      }),
-    )
-    return
-  }
-  if (req.url === '/metrics') {
-    sample({ lanes: r.lanes(), inflight: r.inflight(), openSockets: r.openSockets() })
-    void registry.metrics().then((text) => {
-      res.setHeader('content-type', registry.contentType)
-      res.end(text)
-    })
-    return
-  }
-  res.statusCode = 404
-  res.end()
+const server = statusServer({
+  bus,
+  runner: r,
+  build,
+  version: RUNNER_VERSION,
+  shuttingDown: () => shuttingDown,
+  log,
 })
 live.server = server
 server.listen(cfg.port, cfg.host)

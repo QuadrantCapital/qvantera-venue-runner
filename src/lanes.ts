@@ -2,7 +2,7 @@ import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import { isIP } from 'node:net'
 
 /**
- * Egress lanes (M-367, owner 2026-10-08). A lane is one local address of the runner's host, bound
+ * Egress lanes. A lane is one local address of the runner's host, bound
  * as the source of every venue connection sent on it; several addresses are several lanes, and a
  * venue's per-address limits count each one separately. spot-gateway chooses the lane of every
  * request and socket — this module only finds the addresses, says what the venue sees from each,

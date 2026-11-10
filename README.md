@@ -1,7 +1,7 @@
 # Qvantera venue runner
 
-The venue runner sends your trading platform's venue requests from **your own host and your own IP
-addresses**, so the exchange sees — and whitelists — addresses you control.
+The venue runner sends your Qvantera trading platform's venue requests (requests to an exchange) from
+**your own host and your own IP addresses**, so the exchange sees — and whitelists — addresses you control.
 
 - **Your API secrets never reach it.** The platform signs every request; the runner receives a
   request that is already signed (URL, headers with your API key, body) and sends it, once. It cannot
@@ -99,6 +99,20 @@ spread by lanes — only per-address limits are.
 - If an exchange refuses a lane's address (not whitelisted), the platform stops using that lane until
   the runner's next report; whitelist it and it is used again.
 
+## Limiting where it connects
+
+On the host network the runner can reach whatever the host reaches, its own loopback and private
+networks included. On a host that runs other services, list the exchange hosts it may use in `.env`
+— for MEXC and Gate:
+
+```bash
+RUNNER_ALLOWED_HOSTS=api.mexc.com,wbs-api.mexc.com,api.gateio.ws
+```
+
+A request or stream for any other host is then refused before anything is sent, and logged with
+that host. `docker compose logs venue-runner | grep -m1 'venue-runner starting'` shows the list in
+force (`"allowedHosts":"any"` when unset).
+
 ## Several runners
 
 Register a runner per host and select several for a credential: the platform uses the ones that are
@@ -125,7 +139,8 @@ fully supports. `QV_RUNNER_VERSION` in `.env` pins a release; `latest` is the ne
 
 ## Troubleshooting
 
-`docker compose logs -f venue-runner` shows what the runner does; `docker compose ps` its health.
+`docker compose logs -f venue-runner` shows what the runner does; `docker compose ps` whether the
+process is alive — not whether it is connected to the platform, which `/ready` below says.
 
 | Symptom | Cause |
 | --- | --- |
@@ -138,7 +153,14 @@ fully supports. `QV_RUNNER_VERSION` in `.env` pins a release; `latest` is the ne
 | Orders refused `no_runner_online` | None of the credential's runners is online, or none has an active lane. |
 | Exchange answers "IP not in whitelist" | Whitelist the lane's address shown on the Runners page. |
 
-The runner's own status: `curl -s 127.0.0.1:3005/health` on the host.
+The runner's own status, on the host:
+
+- `curl -s 127.0.0.1:3005/ready` — whether it can carry requests now: `200` and
+  `{"ready":true,"checks":{"nats":"ok"}}`, or `503` with `nats` not `ok` while it cannot reach the
+  platform, and `{"draining":"failed"}` alone once it is stopping (shut down, or revoked).
+- `curl -s 127.0.0.1:3005/health` — liveness: `200` with `"ok": true` whenever the process answers,
+  connected or not, plus its identity, version, lanes, `connected`, and `draining` — set by the
+  runner's administrator on the platform, which then sends it nothing new.
 
 ## Settings
 
@@ -148,13 +170,14 @@ The runner's own status: `curl -s 127.0.0.1:3005/health` on the host.
 | `QV_RUNNER_TOKEN` | The runner's token. Required. |
 | `RUNNER_EGRESS_IPS` | `auto` (default) or a comma-separated list of this host's addresses. |
 | `RUNNER_EGRESS_IP_URL` | A plain-text public-IP lookup, asked through each lane. Optional. |
+| `RUNNER_ALLOWED_HOSTS` | The only exchange hosts it may connect to, comma-separated. Optional; unset, any. |
 | `RUNNER_NAME` | A name in the runner's logs. Optional. |
-| `RUNNER_PORT` | Local port of `/health` and `/metrics`, on 127.0.0.1. Default 3005. |
+| `RUNNER_PORT` | Local port of `/health`, `/ready` and `/metrics`, on 127.0.0.1. Default 3005. |
 | `QV_RUNNER_VERSION` | Image tag. Default `latest`. |
 | `LOG_LEVEL` | `info` (default), `debug`, `warn`, … |
 
 ## Development
 
-Node 22, Yarn 4 (Corepack). `yarn install`, `yarn test` (the NATS tests start a throwaway
+Node 24, Yarn 4 (Corepack). `yarn install`, `yarn test` (the NATS tests start a throwaway
 nats-server in Docker), `yarn typecheck`, `yarn lint`, `yarn build`. Rules for changing it:
 [AGENTS.md](AGENTS.md).

@@ -3,7 +3,7 @@ import { natsUrlFor, parseConfig } from './config.js'
 
 const TOKEN = `qv_rnr_0123456789ab_${'A'.repeat(43)}`
 
-describe('runner configuration (M-367)', () => {
+describe('runner configuration', () => {
   it("logs a registered runner in over the platform's WebSocket, as its token's prefix", () => {
     const c = parseConfig({ QV_PLATFORM_URL: 'https://qvantera.example.com', QV_RUNNER_TOKEN: TOKEN })
     expect(c.natsUrl).toBe('wss://qvantera.example.com/nats')
@@ -15,6 +15,19 @@ describe('runner configuration (M-367)', () => {
   it('takes a chosen set of egress addresses', () => {
     const c = parseConfig({ QV_PLATFORM_URL: 'https://p.example', QV_RUNNER_TOKEN: TOKEN, RUNNER_EGRESS_IPS: '51.79.202.101, 15.235.228.57' })
     expect(c.egress).toEqual(['51.79.202.101', '15.235.228.57'])
+  })
+
+  it('takes the hosts it may send to, and refuses a URL or an empty list in their place', () => {
+    const base = { QV_PLATFORM_URL: 'https://p.example', QV_RUNNER_TOKEN: TOKEN }
+    expect(parseConfig(base).allowedHosts).toBeUndefined()
+    expect(parseConfig({ ...base, RUNNER_ALLOWED_HOSTS: ' API.mexc.com, wbs-api.mexc.com,api.gateio.ws ' }).allowedHosts).toEqual([
+      'api.mexc.com',
+      'wbs-api.mexc.com',
+      'api.gateio.ws',
+    ])
+    expect(() => parseConfig({ ...base, RUNNER_ALLOWED_HOSTS: 'https://api.mexc.com' })).toThrow(/RUNNER_ALLOWED_HOSTS: "https:\/\/api.mexc.com" is not a host name/)
+    expect(() => parseConfig({ ...base, RUNNER_ALLOWED_HOSTS: 'api.mexc.com:443' })).toThrow(/is not a host name/)
+    expect(() => parseConfig({ ...base, RUNNER_ALLOWED_HOSTS: ' , ' })).toThrow(/RUNNER_ALLOWED_HOSTS: names no host/)
   })
 
   it('derives the WebSocket address under a path prefix', () => {
@@ -34,5 +47,15 @@ describe('runner configuration (M-367)', () => {
     const c = parseConfig({ NATS_URL: 'nats://nats:4222', NATS_USER: 'venue-runner', NATS_PASS: 'secret' })
     expect(c.auth).toEqual({ kind: 'static', user: 'venue-runner', pass: 'secret' })
     expect(c.natsUrl).toBe('nats://nats:4222')
+  })
+
+  it('takes a shortened heartbeat for the e2e, and refuses it in production', () => {
+    const env = { NATS_URL: 'nats://nats:4222', NATS_USER: 'venue-runner', NATS_PASS: 'secret' }
+    expect(parseConfig(env).heartbeatMs).toBeUndefined()
+    expect(parseConfig({ ...env, QV_ENV: 'development', QV_TEST_RUNNER_HEARTBEAT_MS: '1000' }).heartbeatMs).toBe(1000)
+    expect(() => parseConfig({ ...env, QV_ENV: 'production', QV_TEST_RUNNER_HEARTBEAT_MS: '1000' })).toThrow(
+      /QV_TEST_RUNNER_HEARTBEAT_MS: is a development switch and is refused when QV_ENV=production/,
+    )
+    expect(() => parseConfig({ ...env, QV_TEST_RUNNER_HEARTBEAT_MS: '10' })).toThrow(/QV_TEST_RUNNER_HEARTBEAT_MS/)
   })
 })

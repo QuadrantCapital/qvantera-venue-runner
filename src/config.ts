@@ -6,14 +6,17 @@ import { z } from 'zod'
  * names it.
  *
  * Two ways to log in, never both:
- *   - `QV_RUNNER_TOKEN` — a registered runner (M-367): the token is the NATS password, presented
+ *   - `QV_RUNNER_TOKEN` — a registered runner: the token is the NATS password, presented
  *     over the platform's WebSocket listener, and the platform's auth callout decides what it may do.
- *   - `NATS_USER` / `NATS_PASS` — the platform's own hosted runner on its Compose network (M-366),
+ *   - `NATS_USER` / `NATS_PASS` — the platform's own hosted runner on its Compose network,
  *     which the platform's configuration names. Never a customer's.
  */
 
 /** `qv_rnr_<prefix>_<secret>`: twelve hex digits that name the runner, then 32 random bytes. */
 export const TOKEN_FORMAT = /^qv_rnr_([0-9a-f]{12})_([A-Za-z0-9_-]{43})$/
+
+/** A host name or an address as a URL's hostname gives it: no scheme, no port, no path. */
+const HOST_NAME = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/
 
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const
 
@@ -38,15 +41,26 @@ const schema = z
     NATS_PASS: optionalText,
     RUNNER_EGRESS_IPS: optionalText.transform((v) => v ?? 'auto'),
     RUNNER_EGRESS_IP_URL: optionalText.pipe(z.string().url().optional()),
+    RUNNER_ALLOWED_HOSTS: optionalText.transform((v) =>
+      v?.split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s !== ''),
+    ),
     RUNNER_NAME: optionalText,
     RUNNER_MAX_INFLIGHT: intFrom(64, 1),
     RUNNER_PORT: intFrom(3005, 0),
-    // The host network on a customer's machine: /health and /metrics stay on loopback unless asked.
+    // The host network on a customer's machine: /health, /ready and /metrics stay on loopback unless asked.
     RUNNER_HOST: optionalText.transform((v) => v ?? '127.0.0.1'),
     // On stop, a request already relayed is waited for: one cut mid-flight is an ambiguous create
     // made by the shutdown itself. Above the venue HTTP timeout spot-gateway sets (20 s).
     NATS_CLOSE_DEADLINE_MS: intFrom(25_000, 0),
     LOG_LEVEL: z.enum(LOG_LEVELS).optional().default('info'),
+    QV_ENV: optionalText,
+    // A development switch: the e2e shortens the heartbeat with the staleness Control and
+    // the gateway judge it by, so an outage is seen in seconds. Refused when QV_ENV=production.
+    QV_TEST_RUNNER_HEARTBEAT_MS: optionalText
+      .transform((v) => (v === undefined ? undefined : Number(v)))
+      .pipe(z.number().int().min(250).optional()),
   })
   .superRefine((c, ctx) => {
     const token = c.QV_RUNNER_TOKEN !== undefined
@@ -61,6 +75,21 @@ const schema = z
     if (user && (c.NATS_USER === undefined || c.NATS_PASS === undefined)) {
       ctx.addIssue({ code: 'custom', path: ['NATS_PASS'], message: 'NATS_USER and NATS_PASS go together' })
     }
+    if (c.QV_TEST_RUNNER_HEARTBEAT_MS !== undefined && c.QV_ENV === 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['QV_TEST_RUNNER_HEARTBEAT_MS'],
+        message: 'is a development switch and is refused when QV_ENV=production',
+      })
+    }
+    if (c.RUNNER_ALLOWED_HOSTS?.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['RUNNER_ALLOWED_HOSTS'], message: 'names no host: leave it unset, or list the venue hosts' })
+    }
+    for (const host of c.RUNNER_ALLOWED_HOSTS ?? []) {
+      if (!HOST_NAME.test(host)) {
+        ctx.addIssue({ code: 'custom', path: ['RUNNER_ALLOWED_HOSTS'], message: `"${host}" is not a host name (api.mexc.com, not a URL)` })
+      }
+    }
     if (c.QV_PLATFORM_URL === undefined && c.NATS_URL === undefined) {
       ctx.addIssue({ code: 'custom', path: ['QV_PLATFORM_URL'], message: "is required: the platform's https:// address" })
     }
@@ -71,17 +100,24 @@ export type RunnerConfig = {
   auth: { kind: 'token'; user: string; pass: string } | { kind: 'static'; user: string; pass: string }
   egress: 'auto' | string[]
   egressIpUrl?: string
+  /**
+   * `RUNNER_ALLOWED_HOSTS`: the only hosts a relayed request or socket may go to. Unset, any — the
+   * runner sends wherever spot-gateway signed for. Set, anything else is refused unsent.
+   */
+  allowedHosts?: string[]
   name?: string
   maxInflight: number
   port: number
   host: string
   closeDeadlineMs: number
+  /** Set only by the e2e (`QV_TEST_RUNNER_HEARTBEAT_MS`); otherwise the runner's own `HEARTBEAT_MS`. */
+  heartbeatMs?: number
   logLevel: (typeof LOG_LEVELS)[number]
 }
 
 /**
- * The platform's NATS: its WebSocket listener behind the HTTPS ingress, `wss://<host>/nats`
- * (§ D-36). `NATS_URL` replaces it for a runner beside the platform (its Compose network, a test).
+ * The platform's NATS: its WebSocket listener behind the HTTPS ingress, `wss://<host>/nats`.
+ * `NATS_URL` replaces it for a runner beside the platform (its Compose network, a test).
  */
 export function natsUrlFor(platformUrl: string): string {
   const url = new URL(platformUrl)
@@ -114,11 +150,13 @@ export function parseConfig(env: Record<string, string | undefined>): RunnerConf
       : { kind: 'static', user: c.NATS_USER as string, pass: c.NATS_PASS as string },
     egress,
     ...(c.RUNNER_EGRESS_IP_URL ? { egressIpUrl: c.RUNNER_EGRESS_IP_URL } : {}),
+    ...(c.RUNNER_ALLOWED_HOSTS ? { allowedHosts: c.RUNNER_ALLOWED_HOSTS } : {}),
     ...(c.RUNNER_NAME ? { name: c.RUNNER_NAME } : {}),
     maxInflight: c.RUNNER_MAX_INFLIGHT,
     port: c.RUNNER_PORT,
     host: c.RUNNER_HOST,
     closeDeadlineMs: c.NATS_CLOSE_DEADLINE_MS,
+    ...(c.QV_TEST_RUNNER_HEARTBEAT_MS ? { heartbeatMs: c.QV_TEST_RUNNER_HEARTBEAT_MS } : {}),
     logLevel: c.LOG_LEVEL,
   }
 }

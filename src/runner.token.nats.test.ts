@@ -13,7 +13,7 @@ import { startNats, type NatsServer } from './nats-harness.js'
 import { startRunner } from './runner.js'
 
 /**
- * A registered runner's login (M-367) against a real nats-server with an auth callout. The callout
+ * A registered runner's login against a real nats-server with an auth callout. The callout
  * here stands in for Control's and does what it does: a token over the WebSocket listener gets a
  * user with that runner's subjects, its hello and its inbox, for a few seconds.
  *
@@ -45,7 +45,7 @@ const server: NatsServer | null = await startNats(
 )
 const describeNats = server ? describe : describe.skip
 
-describeNats('a registered runner logs in with its token (M-367)', () => {
+describeNats('a registered runner logs in with its token', () => {
   let auth: NatsConnection
   let gatewayNc: NatsConnection
   let bus: RunnerBus

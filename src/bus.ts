@@ -3,7 +3,7 @@ import { connect as tcpconnect } from '@nats-io/transport-node'
 import { decode, encode, type DecodedMessage, type MessageTypeName, type WirePayloadByType } from '@quadrantcapital/wire'
 
 /**
- * The runner's NATS connection (M-367). A plain NATS client, outbound only: over the platform's
+ * The runner's NATS connection. A plain NATS client, outbound only: over the platform's
  * WebSocket listener with a token, or over TCP on the platform's own Compose network for its hosted
  * runner. Every message is a QVPB frame (`@quadrantcapital/wire`).
  *
@@ -45,10 +45,10 @@ export const QUEUE = 'runner'
 /**
  * A login that is never given up on. The platform may be down when the runner starts or restart
  * under it, and while Control restarts its auth callout refuses every login: nats.js by default
- * aborts after two refusals in a row and throws out of the first connect, which ended the runner
- * (found on a local stack, 2026-10-08). `ignoreAuthErrorAbort` keeps it asking, first connect
- * included, and `watch` logs each refusal. A token refused for good was rotated or revoked — the log
- * says `Authorization Violation`, and the runner keeps asking rather than restart-looping.
+ * aborts after two refusals in a row and throws out of the first connect, which ended the runner.
+ * `ignoreAuthErrorAbort` keeps it asking, first connect included, and `watch` logs each refusal. A
+ * token refused for good was rotated or revoked — the log says `Authorization Violation`, and the
+ * runner keeps asking rather than restart-looping.
  */
 async function login(opts: BusOptions): Promise<NatsConnection> {
   const common: ConnectionOptions = {
@@ -143,6 +143,12 @@ export async function openBus(opts: BusOptions) {
 
     inflight: () => current.inflight,
     connected: () => !current.nc.isClosed() && current.nc.info !== undefined,
+    /**
+     * A PING answered now (`/ready`): `rtt()` refuses at once while the connection is down
+     * or closed, and catches a link that went silent without a reset, which `connected()` reports
+     * as up until the client's own ping interval (two minutes) gives up on it.
+     */
+    ping: () => current.nc.rtt(),
 
     /** Shutdown: no new message is taken, the ones being handled are answered, then the connection closes. */
     async close(deadlineMs: number): Promise<void> {
