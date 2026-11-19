@@ -12,9 +12,15 @@ import { decode, encode, type DecodedMessage, type MessageTypeName, type WirePay
  * in on (the reply permission is per connection), so a request in flight when the server cut the
  * connection would lose its answer — and a lost create answer is an ambiguous order. So the runner
  * changes connections before that, make before break: `rollover` logs in again, subscribes the new
- * connection, unsubscribes the old one, and closes it only once every request it delivered has been
- * answered. Every subscription is in one queue group, so while both are subscribed each message
- * reaches one of them, never both — the same holds for two processes started with one token.
+ * connection, drains the old one's subscriptions, and closes it only once every request it delivered
+ * has been answered. Every subscription is in one queue group, so while both are subscribed each
+ * message reaches one of them, never both — the same holds for two processes started with one token.
+ *
+ * **A subscription is drained, never unsubscribed.** The server has already sent a request that was
+ * in transit when the subscription ends, and `unsubscribe` drops it on arrival, unanswered — the
+ * sender sees a timeout, and a lost create is an ambiguous order. `drain` ends the subscription at the
+ * server and still delivers what the server had sent, so by the time it resolves every request the
+ * connection will ever deliver is in `inflight`.
  */
 
 export type Reply = { type: MessageTypeName; payload: unknown }
@@ -137,7 +143,7 @@ export async function openBus(opts: BusOptions) {
       await next.nc.flush()
       const old = current
       current = next
-      for (const sub of old.subs) sub.unsubscribe()
+      await drainAll(old)
       await retire(old, deadlineMs)
     },
 
@@ -152,10 +158,16 @@ export async function openBus(opts: BusOptions) {
 
     /** Shutdown: no new message is taken, the ones being handled are answered, then the connection closes. */
     async close(deadlineMs: number): Promise<void> {
-      for (const sub of current.subs) sub.unsubscribe()
-      await retire(current, deadlineMs)
+      const live = current
+      await drainAll(live)
+      await retire(live, deadlineMs)
     },
   }
+}
+
+/** A subscription the server refused, or a connection already gone, rejects its drain; the connection is retired regardless. */
+async function drainAll(live: Live): Promise<void> {
+  await Promise.allSettled(live.subs.map((sub) => sub.drain()))
 }
 
 async function retire(live: Live, deadlineMs: number): Promise<void> {
