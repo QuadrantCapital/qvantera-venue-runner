@@ -143,7 +143,7 @@ export async function openBus(opts: BusOptions) {
       await next.nc.flush()
       const old = current
       current = next
-      await Promise.all(old.subs.map((sub) => sub.drain()))
+      await drainAll(old)
       await retire(old, deadlineMs)
     },
 
@@ -158,10 +158,16 @@ export async function openBus(opts: BusOptions) {
 
     /** Shutdown: no new message is taken, the ones being handled are answered, then the connection closes. */
     async close(deadlineMs: number): Promise<void> {
-      await Promise.all(current.subs.map((sub) => sub.drain()))
-      await retire(current, deadlineMs)
+      const live = current
+      await drainAll(live)
+      await retire(live, deadlineMs)
     },
   }
+}
+
+/** A subscription the server refused, or a connection already gone, rejects its drain; the connection is retired regardless. */
+async function drainAll(live: Live): Promise<void> {
+  await Promise.allSettled(live.subs.map((sub) => sub.drain()))
 }
 
 async function retire(live: Live, deadlineMs: number): Promise<void> {

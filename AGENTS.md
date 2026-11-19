@@ -44,10 +44,11 @@ Control's auth callout answers with a user holding exactly that runner's subject
 inbox, for `session_ttl_sec`. The server ends the connection at that expiry, and a reply can only go
 out on the connection its request came in on — so a request in flight at the cut would lose its
 answer, and a lost create answer is an ambiguous order. `bus.ts` therefore logs in again at 70 % of
-the login's life, subscribes the new connection, drains the old one's subscriptions (an `unsubscribe`
-drops a request that was in transit, unanswered) and closes it only once every request it delivered
-has been answered. `runner.token.nats.test.ts` holds a request across the
-renewal against a real nats-server with a callout; it fails with the renewal switched off.
+the login's life, subscribes the new connection, drains the old one's subscriptions and closes it
+only once every request it delivered has been answered. `runner.token.nats.test.ts` holds a request
+across the renewal against a real nats-server with a callout; it fails with the renewal switched off.
+`bus.rollover.nats.test.ts` rolls the login over, and shuts the bus down, under concurrent requests;
+it fails with `unsubscribe` in place of `drain`.
 
 Every subscription is in one queue group, so while two connections overlap — or two processes run
 with one token — each message reaches one of them, never both.
