@@ -158,7 +158,7 @@ describeNats('venue runner over NATS', () => {
       version: '1.0.0',
       egressIp: '198.51.100.7',
       maxInflight: 2,
-      openSockets: 0,
+      socketIds: [],
     })
     // Both loopback lanes report one public address: the second is the same lane to the venue.
     expect(heartbeats[0]!.lanes[0]).toMatchObject({ localAddress: '127.0.0.1', publicAddress: '198.51.100.7', state: 'active' })

@@ -17,7 +17,7 @@ const server = await startNats(
 const d = server ? describe : describe.skip
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const frame = encode('RunnerHelloRequest', { version: '1', lanes: [], instanceId: 'i' })
+const frame = encode('RunnerHelloRequest', { version: '1', lanes: [] })
 
 async function echoBus() {
   const bus = await openBus({ url: server!.url, user: 'runner', pass: 'rp', inboxPrefix: '_INBOX_runner', log })
