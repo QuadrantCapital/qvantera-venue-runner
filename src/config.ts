@@ -1,3 +1,4 @@
+import { RUNNER_CLOSE_DEADLINE_MS } from '@quadrantcapital/proto'
 import { z } from 'zod'
 
 /**
@@ -52,8 +53,8 @@ const schema = z
     // The host network on a customer's machine: /health, /ready and /metrics stay on loopback unless asked.
     RUNNER_HOST: optionalText.transform((v) => v ?? '127.0.0.1'),
     // On stop, a request already relayed is waited for: one cut mid-flight is an ambiguous create
-    // made by the shutdown itself. Above the venue HTTP timeout spot-gateway sets (20 s).
-    NATS_CLOSE_DEADLINE_MS: intFrom(25_000, 0),
+    // made by the shutdown itself. The default stays above the venue HTTP timeout spot-gateway sets.
+    NATS_CLOSE_DEADLINE_MS: intFrom(RUNNER_CLOSE_DEADLINE_MS, 0),
     LOG_LEVEL: z.enum(LOG_LEVELS).optional().default('info'),
     QV_ENV: optionalText,
     // A development switch: the e2e shortens the heartbeat with the staleness Control and

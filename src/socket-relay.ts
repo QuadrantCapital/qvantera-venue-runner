@@ -1,8 +1,6 @@
+import { RUNNER_SOCKET_ACCEPT_MS } from '@quadrantcapital/proto'
 import WebSocket from 'ws'
 import { laneSocketOptions } from './lanes.js'
-
-/** How long a venue has to accept a socket before the open is answered `connect_failed`. */
-export const OPEN_TIMEOUT_MS = 15_000
 
 export type SocketEvents = {
   frame(socketId: string, data: Uint8Array, binary: boolean): void
@@ -66,7 +64,7 @@ export function createSocketRelay(opts: {
           sockets.delete(socketId)
           ws.terminate()
           settle({ error: 'connect_failed' })
-        }, OPEN_TIMEOUT_MS)
+        }, RUNNER_SOCKET_ACCEPT_MS)
         timer.unref()
         ws.on('open', () => settle({}))
         ws.on('message', (data, isBinary) => opts.events.frame(socketId, bytes(data), isBinary))
