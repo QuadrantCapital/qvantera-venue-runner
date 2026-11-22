@@ -5,7 +5,7 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
-"@bufbuild/protobuf@npm:^2.9.0":
+"@bufbuild/protobuf@npm:2.16.0":
   version: 2.16.0
   resolution: "@bufbuild/protobuf@npm:2.16.0"
   checksum: 10c0/ba3bc677e801a71d9cf0bdc138174144e493706efec3a47865eb07e956423315a80ff12301f6835d352202ae4d6599f2946a7c67338cf0079ed2a06af1a18097
@@ -452,12 +452,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@quadrantcapital/proto@npm:0.11.89":
-  version: 0.11.89
-  resolution: "@quadrantcapital/proto@npm:0.11.89::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40quadrantcapital%2Fproto%2F0.11.89%2F89f46a07bdf608a5dcb278083c4829f00a648b85"
+"@quadrantcapital/proto@npm:0.17.274":
+  version: 0.17.274
+  resolution: "@quadrantcapital/proto@npm:0.17.274::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40quadrantcapital%2Fproto%2F0.17.274%2Faa543742312aaab811ea0f4001ed62b9df6fe8e0"
   dependencies:
-    "@bufbuild/protobuf": "npm:^2.9.0"
-  checksum: 10c0/d8f04ea338f329c682b6653ab2e21520957945575ba9661863b004c1459fe20184e74f5700d79c61ad15328117d34185fab62c2a5f85d641caaee6ddbc079df8
+    "@bufbuild/protobuf": "npm:2.16.0"
+  checksum: 10c0/dcc545742cb3a1f146efde03fce1542fce78c53013bb7a764c4f673d73fe863c684e100916d58fd3e79b15009922a91210c2a25e0c8b23d9bdb8bc00243a4184
   languageName: node
   linkType: hard
 
@@ -470,8 +470,8 @@ __metadata:
     "@nats-io/nats-core": "npm:3.4.0"
     "@nats-io/nkeys": "npm:2.0.3"
     "@nats-io/transport-node": "npm:3.4.0"
-    "@quadrantcapital/proto": "npm:0.11.89"
-    "@quadrantcapital/wire": "npm:1.0.390"
+    "@quadrantcapital/proto": "npm:0.17.274"
+    "@quadrantcapital/wire": "npm:1.0.708"
     "@types/node": "npm:24.19.2"
     "@types/ws": "npm:8.18.2"
     axios: "npm:1.21.1"
@@ -488,13 +488,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@quadrantcapital/wire@npm:1.0.390":
-  version: 1.0.390
-  resolution: "@quadrantcapital/wire@npm:1.0.390::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40quadrantcapital%2Fwire%2F1.0.390%2F162cdac388601ed43bfb96b780a2f920ce610015"
+"@quadrantcapital/wire@npm:1.0.708":
+  version: 1.0.708
+  resolution: "@quadrantcapital/wire@npm:1.0.708::__archiveUrl=https%3A%2F%2Fnpm.pkg.github.com%2Fdownload%2F%40quadrantcapital%2Fwire%2F1.0.708%2F19ba72de81ad3ebb9d122533c0975915d5cbb929"
   dependencies:
-    "@bufbuild/protobuf": "npm:^2.9.0"
-    "@quadrantcapital/proto": "npm:0.11.89"
-  checksum: 10c0/d5d47f0aaa620a72c78cbf3686b2bc5f7d1d56555c0daef2a73b7e7b7182ec2872a7671899731a40ef502f4f268f4e118053ee1cfa2525ccd0bcb243a8176c3b
+    "@bufbuild/protobuf": "npm:2.16.0"
+    "@quadrantcapital/proto": "npm:0.17.274"
+  checksum: 10c0/0cc7514805e9bff018f1b8b1f8b2e9d6830dbf2b91196cd537ff9f005e9779e5c5bd3627d39b02f1543600903da7a3d07bf8b93df61e9e5a8e5188a792a8738f
   languageName: node
   linkType: hard
 
