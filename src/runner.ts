@@ -68,7 +68,6 @@ export async function startRunner(deps: {
 }) {
   const { bus, log } = deps
   const instanceId = randomUUID()
-  const startedAt = Date.now()
   let inflight = 0
   let egress: string[] | null = null
   let lanes: Lane[] = await resolveLanes(deps.addresses, deps.lookup, egress)
@@ -82,7 +81,7 @@ export async function startRunner(deps: {
       const res = await bus.request(
         subjects.runnerHello(deps.user),
         'RunnerHelloRequest',
-        { version: deps.version, lanes, instanceId },
+        { version: deps.version, lanes },
         HELLO_TIMEOUT_MS,
       )
       return res.type === 'RunnerHelloResponse' ? (res.payload as Hello) : null
@@ -256,10 +255,7 @@ export async function startRunner(deps: {
       scope,
       instanceId,
       version: deps.version,
-      uptimeSec: BigInt(Math.floor((Date.now() - startedAt) / 1000)),
       egressIp: egressIp(),
-      openSockets: ids.length,
-      inflightRequests: inflight,
       maxInflight: deps.maxInflight,
       socketIds: ids,
       lanes,
