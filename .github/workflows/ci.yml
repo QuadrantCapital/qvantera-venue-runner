@@ -338,6 +338,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/ci/green-status.sh check
+      # The CI guests' launch helper, installed in this VM from deploy's pinned copy of qvantera-infra's:
+      # the e2e places every launch through it, as on the guests and the pilot.
+      - if: steps.record.outputs.skip != 'true'
+        name: The launch helper on this VM
+        run: sudo --preserve-env=RUNNER_ENVIRONMENT ./scripts/ci/hosted-launch-helper.sh
       - if: steps.record.outputs.skip != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
